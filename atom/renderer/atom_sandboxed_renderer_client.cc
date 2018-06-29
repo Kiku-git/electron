@@ -14,6 +14,7 @@
 #include "atom/renderer/atom_render_frame_observer.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/process/process_handle.h"
 #include "chrome/renderer/printing/print_web_view_helper.h"
 #include "content/public/renderer/render_frame.h"
 #include "native_mate/dictionary.h"
@@ -89,6 +90,7 @@ void InitializeBindings(v8::Local<v8::Object> binding,
   b.SetMethod("crash", AtomBindings::Crash);
   b.SetMethod("hang", AtomBindings::Hang);
   b.SetMethod("getArgv", GetArgv);
+  b.SetMethod("getPid", &base::GetCurrentProcId);
   b.SetMethod("getHeapStatistics", &AtomBindings::GetHeapStatistics);
   b.SetMethod("getProcessMemoryInfo", &AtomBindings::GetProcessMemoryInfo);
   b.SetMethod("getSystemMemoryInfo", &AtomBindings::GetSystemMemoryInfo);

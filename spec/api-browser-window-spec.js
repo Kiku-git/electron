@@ -1557,9 +1557,26 @@ describe('BrowserWindow module', () => {
         })
       })
 
-      it('validate process.env access in sandbox renderer', (done) => {
+      it('validates process.pid access in sandboxed renderer', (done) => {
         ipcMain.once('answer', function (event, test) {
-          assert.equal(test, 'foo')
+          assert.equal(test.pid, w.webContents.getOSProcessId())
+          done()
+        })
+        remote.process.env.sandboxmain = 'foo'
+        w.destroy()
+        w = new BrowserWindow({
+          show: false,
+          webPreferences: {
+            sandbox: true,
+            preload: preload
+          }
+        })
+        w.loadURL('file://' + path.join(fixtures, 'api', 'preload.html'))
+      })
+
+      it('validates process.env access in sandboxed renderer', (done) => {
+        ipcMain.once('answer', function (event, test) {
+          assert.deepEqual(test.env, remote.process.env)
           done()
         })
         remote.process.env.sandboxmain = 'foo'
