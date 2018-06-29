@@ -1590,6 +1590,40 @@ describe('BrowserWindow module', () => {
         })
         w.loadURL('file://' + path.join(fixtures, 'api', 'preload.html'))
       })
+
+      it('validates process.version access in sandboxed renderer', (done) => {
+        ipcMain.once('answer', function (event, test) {
+          assert.equal(process.version, remote.process.version)
+          done()
+        })
+        remote.process.env.sandboxmain = 'foo'
+        w.destroy()
+        w = new BrowserWindow({
+          show: false,
+          webPreferences: {
+            sandbox: true,
+            preload: preload
+          }
+        })
+        w.loadURL('file://' + path.join(fixtures, 'api', 'preload.html'))
+      })
+
+      it('validates process.versions access in sandboxed renderer', (done) => {
+        ipcMain.once('answer', function (event, test) {
+          assert.deepEqual(process.versions, remote.process.versions)
+          done()
+        })
+        remote.process.env.sandboxmain = 'foo'
+        w.destroy()
+        w = new BrowserWindow({
+          show: false,
+          webPreferences: {
+            sandbox: true,
+            preload: preload
+          }
+        })
+        w.loadURL('file://' + path.join(fixtures, 'api', 'preload.html'))
+      })
     })
 
     describe('nativeWindowOpen option', () => {
