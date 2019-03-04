@@ -2,19 +2,20 @@
 // with the session bus. This requires python-dbusmock to be installed and
 // running at $DBUS_SESSION_BUS_ADDRESS.
 //
-// script/test.py spawns dbusmock, which sets DBUS_SESSION_BUS_ADDRESS.
+// script/spec-runner.js spawns dbusmock, which sets DBUS_SESSION_BUS_ADDRESS.
 //
 // See https://pypi.python.org/pypi/python-dbusmock to read about dbusmock.
 
-const assert = require('assert')
+const { expect } = require('chai')
 const dbus = require('dbus-native')
 const Promise = require('bluebird')
 
-const {remote} = require('electron')
-const {app} = remote.require('electron')
+const { remote } = require('electron')
+const { app } = remote
 
 const skip = process.platform !== 'linux' ||
              process.arch === 'ia32' ||
+             process.arch.indexOf('arm') === 0 ||
              !process.env.DBUS_SESSION_BUS_ADDRESS;
 
 (skip ? describe.skip : describe)('Notification module (dbus)', () => {
@@ -27,17 +28,17 @@ const skip = process.platform !== 'linux' ||
   before(async () => {
     // init app
     app.setName(appName)
-    app.setDesktopName(appName + '.desktop')
+    app.setDesktopName(`${appName}.desktop`)
     // init dbus
     const path = '/org/freedesktop/Notifications'
     const iface = 'org.freedesktop.DBus.Mock'
     const bus = dbus.sessionBus()
-    console.log('session bus: ' + process.env.DBUS_SESSION_BUS_ADDRESS)
+    console.log(`session bus: ${process.env.DBUS_SESSION_BUS_ADDRESS}`)
     const service = bus.getService(serviceName)
-    const getInterface = Promise.promisify(service.getInterface, {context: service})
+    const getInterface = Promise.promisify(service.getInterface, { context: service })
     mock = await getInterface(path, iface)
-    getCalls = Promise.promisify(mock.GetCalls, {context: mock})
-    reset = Promise.promisify(mock.Reset, {context: mock})
+    getCalls = Promise.promisify(mock.GetCalls, { context: mock })
+    reset = Promise.promisify(mock.Reset, { context: mock })
   })
 
   after(async () => {
@@ -48,10 +49,10 @@ const skip = process.platform !== 'linux' ||
     app.setVersion(realAppVersion)
   })
 
-  describe('Notification module using ' + serviceName, () => {
+  describe(`Notification module using ${serviceName}`, () => {
     function onMethodCalled (done) {
       function cb (name) {
-        console.log('onMethodCalled: ' + name)
+        console.log(`onMethodCalled: ${name}`)
         if (name === 'Notify') {
           mock.removeListener('MethodCalled', cb)
           console.log('done')
@@ -62,10 +63,10 @@ const skip = process.platform !== 'linux' ||
     }
 
     function unmarshalDBusNotifyHints (dbusHints) {
-      let o = {}
-      for (let hint of dbusHints) {
-        let key = hint[0]
-        let value = hint[1][1][0]
+      const o = {}
+      for (const hint of dbusHints) {
+        const key = hint[0]
+        const value = hint[1][1][0]
         o[key] = value
       }
       return o
@@ -83,7 +84,7 @@ const skip = process.platform !== 'linux' ||
       }
     }
 
-    before((done) => {
+    before(done => {
       mock.on('MethodCalled', onMethodCalled(done))
       // lazy load Notification after we listen to MethodCalled mock signal
       Notification = require('electron').remote.Notification
@@ -98,14 +99,16 @@ const skip = process.platform !== 'linux' ||
       n.show()
     })
 
-    it('should call ' + serviceName + ' to show notifications', async () => {
+    it(`should call ${serviceName} to show notifications`, async () => {
       const calls = await getCalls()
-      assert(calls.length >= 1)
-      let lastCall = calls[calls.length - 1]
-      let methodName = lastCall[1]
-      assert.equal(methodName, 'Notify')
-      let args = unmarshalDBusNotifyArgs(lastCall[2])
-      assert.deepEqual(args, {
+      expect(calls).to.be.an('array').of.lengthOf.at.least(1)
+
+      const lastCall = calls[calls.length - 1]
+      const methodName = lastCall[1]
+      expect(methodName).to.equal('Notify')
+
+      const args = unmarshalDBusNotifyArgs(lastCall[2])
+      expect(args).to.deep.equal({
         app_name: appName,
         replaces_id: 0,
         app_icon: '',

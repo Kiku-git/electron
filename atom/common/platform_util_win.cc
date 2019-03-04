@@ -20,12 +20,16 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/post_task.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_co_mem.h"
 #include "base/win/scoped_com_initializer.h"
 #include "base/win/windows_version.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "ui/base/win/shell.h"
 #include "url/gurl.h"
 
@@ -226,58 +230,29 @@ HRESULT DeleteFileProgressSink::ResumeTimer() {
   return S_OK;
 }
 
-}  // namespace
-
-namespace platform_util {
-
-bool ShowItemInFolder(const base::FilePath& full_path) {
+void ShowItemInFolderOnWorkerThread(const base::FilePath& full_path) {
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   base::win::ScopedCOMInitializer com_initializer;
   if (!com_initializer.Succeeded())
-    return false;
+    return;
 
   base::FilePath dir = full_path.DirName().AsEndingWithSeparator();
   // ParseDisplayName will fail if the directory is "C:", it must be "C:\\".
   if (dir.empty())
-    return false;
-
-  typedef HRESULT(WINAPI * SHOpenFolderAndSelectItemsFuncPtr)(
-      PCIDLIST_ABSOLUTE pidl_Folder, UINT cidl, PCUITEMID_CHILD_ARRAY pidls,
-      DWORD flags);
-
-  static SHOpenFolderAndSelectItemsFuncPtr open_folder_and_select_itemsPtr =
-      NULL;
-  static bool initialize_open_folder_proc = true;
-  if (initialize_open_folder_proc) {
-    initialize_open_folder_proc = false;
-    // The SHOpenFolderAndSelectItems API is exposed by shell32 version 6
-    // and does not exist in Win2K. We attempt to retrieve this function export
-    // from shell32 and if it does not exist, we just invoke ShellExecute to
-    // open the folder thus losing the functionality to select the item in
-    // the process.
-    HMODULE shell32_base = GetModuleHandle(L"shell32.dll");
-    if (!shell32_base) {
-      NOTREACHED() << " " << __FUNCTION__ << "(): Can't open shell32.dll";
-      return false;
-    }
-    open_folder_and_select_itemsPtr =
-        reinterpret_cast<SHOpenFolderAndSelectItemsFuncPtr>(
-            GetProcAddress(shell32_base, "SHOpenFolderAndSelectItems"));
-  }
-  if (!open_folder_and_select_itemsPtr) {
-    return ui::win::OpenFolderViaShell(dir);
-  }
+    return;
 
   Microsoft::WRL::ComPtr<IShellFolder> desktop;
   HRESULT hr = SHGetDesktopFolder(desktop.GetAddressOf());
   if (FAILED(hr))
-    return false;
+    return;
 
   base::win::ScopedCoMem<ITEMIDLIST> dir_item;
   hr = desktop->ParseDisplayName(NULL, NULL,
                                  const_cast<wchar_t*>(dir.value().c_str()),
                                  NULL, &dir_item, NULL);
   if (FAILED(hr)) {
-    return ui::win::OpenFolderViaShell(dir);
+    ui::win::OpenFolderViaShell(dir);
+    return;
   }
 
   base::win::ScopedCoMem<ITEMIDLIST> file_item;
@@ -285,33 +260,37 @@ bool ShowItemInFolder(const base::FilePath& full_path) {
       NULL, NULL, const_cast<wchar_t*>(full_path.value().c_str()), NULL,
       &file_item, NULL);
   if (FAILED(hr)) {
-    return ui::win::OpenFolderViaShell(dir);
+    ui::win::OpenFolderViaShell(dir);
+    return;
   }
 
   const ITEMIDLIST* highlight[] = {file_item};
-
-  hr = (*open_folder_and_select_itemsPtr)(dir_item, arraysize(highlight),
-                                          highlight, NULL);
-  if (!FAILED(hr))
-    return true;
-
-  // On some systems, the above call mysteriously fails with "file not
-  // found" even though the file is there.  In these cases, ShellExecute()
-  // seems to work as a fallback (although it won't select the file).
-  if (hr == ERROR_FILE_NOT_FOUND) {
-    return ui::win::OpenFolderViaShell(dir);
-  } else {
-    LPTSTR message = NULL;
-    FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
-                  0, hr, 0, reinterpret_cast<LPTSTR>(&message), 0, NULL);
-    LOG(WARNING) << " " << __FUNCTION__ << "(): Can't open full_path = \""
-                 << full_path.value() << "\""
-                 << " hr = " << hr << " " << reinterpret_cast<LPTSTR>(&message);
-    if (message)
-      LocalFree(message);
-
-    return ui::win::OpenFolderViaShell(dir);
+  hr = SHOpenFolderAndSelectItems(dir_item, base::size(highlight), highlight,
+                                  NULL);
+  if (FAILED(hr)) {
+    // On some systems, the above call mysteriously fails with "file not
+    // found" even though the file is there.  In these cases, ShellExecute()
+    // seems to work as a fallback (although it won't select the file).
+    if (hr == ERROR_FILE_NOT_FOUND) {
+      ShellExecute(NULL, L"open", dir.value().c_str(), NULL, NULL, SW_SHOW);
+    } else {
+      LOG(WARNING) << " " << __func__ << "(): Can't open full_path = \""
+                   << full_path.value() << "\""
+                   << " hr = " << logging::SystemErrorCodeToString(hr);
+      ui::win::OpenFolderViaShell(dir);
+    }
   }
+}
+
+}  // namespace
+
+namespace platform_util {
+
+void ShowItemInFolder(const base::FilePath& full_path) {
+  base::CreateCOMSTATaskRunnerWithTraits(
+      {base::MayBlock(), base::TaskPriority::USER_BLOCKING})
+      ->PostTask(FROM_HERE,
+                 base::BindOnce(&ShowItemInFolderOnWorkerThread, full_path));
 }
 
 bool OpenItem(const base::FilePath& full_path) {
@@ -321,15 +300,18 @@ bool OpenItem(const base::FilePath& full_path) {
     return ui::win::OpenFileViaShell(full_path);
 }
 
-bool OpenExternal(const base::string16& url, bool activate) {
+bool OpenExternal(const base::string16& url,
+                  const OpenExternalOptions& options) {
   // Quote the input scheme to be sure that the command does not have
   // parameters unexpected by the external program. This url should already
   // have been escaped.
   base::string16 escaped_url = L"\"" + url + L"\"";
+  auto working_dir = options.working_dir.value();
 
-  if (reinterpret_cast<ULONG_PTR>(ShellExecuteW(
-          NULL, L"open", escaped_url.c_str(), NULL, NULL, SW_SHOWNORMAL)) <=
-      32) {
+  if (reinterpret_cast<ULONG_PTR>(
+          ShellExecuteW(nullptr, L"open", escaped_url.c_str(), nullptr,
+                        working_dir.empty() ? nullptr : working_dir.c_str(),
+                        SW_SHOWNORMAL)) <= 32) {
     // We fail to execute the call. We could display a message to the user.
     // TODO(nsylvain): we should also add a dialog to warn on errors. See
     // bug 1136923.
@@ -339,10 +321,10 @@ bool OpenExternal(const base::string16& url, bool activate) {
 }
 
 void OpenExternal(const base::string16& url,
-                  bool activate,
-                  const OpenExternalCallback& callback) {
+                  const OpenExternalOptions& options,
+                  OpenExternalCallback callback) {
   // TODO(gabriel): Implement async open if callback is specified
-  callback.Run(OpenExternal(url, activate) ? "" : "Failed to open");
+  std::move(callback).Run(OpenExternal(url, options) ? "" : "Failed to open");
 }
 
 bool MoveItemToTrash(const base::FilePath& path) {

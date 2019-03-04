@@ -5,6 +5,7 @@
 #ifndef ATOM_RENDERER_ATOM_RENDERER_CLIENT_H_
 #define ATOM_RENDERER_ATOM_RENDERER_CLIENT_H_
 
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -13,7 +14,7 @@
 
 namespace node {
 class Environment;
-}
+}  // namespace node
 
 namespace atom {
 
@@ -30,16 +31,10 @@ class AtomRendererClient : public RendererClientBase {
                               content::RenderFrame* render_frame) override;
   void WillReleaseScriptContext(v8::Handle<v8::Context> context,
                                 content::RenderFrame* render_frame) override;
-  void SetupMainWorldOverrides(v8::Handle<v8::Context> context) override;
+  void SetupMainWorldOverrides(v8::Handle<v8::Context> context,
+                               content::RenderFrame* render_frame) override;
 
  private:
-  enum NodeIntegration {
-    ALL,
-    EXCEPT_IFRAME,
-    MANUAL_ENABLE_IFRAME,
-    DISABLE,
-  };
-
   // content::ContentRendererClient:
   void RenderThreadStarted() override;
   void RenderFrameCreated(content::RenderFrame*) override;
@@ -50,8 +45,7 @@ class AtomRendererClient : public RendererClientBase {
                   const GURL& url,
                   const std::string& http_method,
                   bool is_initial_navigation,
-                  bool is_server_redirect,
-                  bool* send_referrer) override;
+                  bool is_server_redirect) override;
   void DidInitializeWorkerContextOnWorkerThread(
       v8::Local<v8::Context> context) override;
   void WillDestroyWorkerContextOnWorkerThread(

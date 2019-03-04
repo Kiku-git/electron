@@ -6,6 +6,9 @@
 
 namespace atom {
 
+const char kBrowserForward[] = "browser-forward";
+const char kBrowserBackward[] = "browser-backward";
+
 const char kCORSHeader[] = "Access-Control-Allow-Origin: *";
 
 const char kSHA1Certificate[] = "SHA-1 Certificate";
@@ -24,13 +27,13 @@ const char kSecureProtocolDescription[] =
     "The connection to this site is using a strong protocol version "
     "and cipher suite.";
 
-#if defined(ENABLE_PDF_VIEWER)
+#if BUILDFLAG(ENABLE_PDF_VIEWER)
 const char kPdfPluginMimeType[] = "application/x-google-chrome-pdf";
 const char kPdfPluginPath[] = "chrome://pdf-viewer/";
 const char kPdfPluginSrc[] = "src";
 
 const char kPdfViewerUIOrigin[] = "chrome://pdf-viewer/";
 const char kPdfViewerUIHost[] = "pdf-viewer";
-#endif  // defined(ENABLE_PDF_VIEWER)
+#endif  // BUILDFLAG(ENABLE_PDF_VIEWER)
 
 }  // namespace atom

@@ -4,6 +4,9 @@
 
 #include "atom/browser/ui/views/submenu_button.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/gfx/canvas.h"
@@ -20,8 +23,7 @@ SubmenuButton::SubmenuButton(const base::string16& title,
                              views::MenuButtonListener* menu_button_listener,
                              const SkColor& background_color)
     : views::MenuButton(gfx::RemoveAcceleratorChar(title, '&', NULL, NULL),
-                        menu_button_listener,
-                        false),
+                        menu_button_listener),
       background_color_(background_color) {
 #if defined(OS_LINUX)
   // Dont' use native style border.
@@ -35,7 +37,7 @@ SubmenuButton::SubmenuButton(const base::string16& title,
 
   SetInkDropMode(InkDropMode::ON);
   set_ink_drop_base_color(
-      color_utils::BlendTowardOppositeLuma(background_color_, 0x61));
+      color_utils::BlendTowardMaxContrast(background_color_, 0x61));
 }
 
 SubmenuButton::~SubmenuButton() {}
@@ -68,15 +70,21 @@ void SubmenuButton::SetUnderlineColor(SkColor color) {
   underline_color_ = color;
 }
 
+void SubmenuButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  node_data->SetName(GetAccessibleName());
+  node_data->role = ax::mojom::Role::kPopUpButton;
+}
+
 void SubmenuButton::PaintButtonContents(gfx::Canvas* canvas) {
   views::MenuButton::PaintButtonContents(canvas);
 
   if (show_underline_ && (underline_start_ != underline_end_)) {
-    int padding = (width() - text_width_) / 2;
-    int underline_height = (height() + text_height_) / 2 - 2;
-    canvas->DrawLine(gfx::Point(underline_start_ + padding, underline_height),
-                     gfx::Point(underline_end_ + padding, underline_height),
-                     underline_color_);
+    float padding = (width() - text_width_) / 2;
+    float underline_height = (height() + text_height_) / 2 - 2;
+    canvas->DrawSharpLine(
+        gfx::PointF(underline_start_ + padding, underline_height),
+        gfx::PointF(underline_end_ + padding, underline_height),
+        underline_color_);
   }
 }
 

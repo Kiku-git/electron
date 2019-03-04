@@ -7,6 +7,8 @@
 #include "atom/browser/native_window_mac.h"
 #include "atom/browser/ui/cocoa/atom_preview_item.h"
 #include "atom/browser/ui/cocoa/atom_touch_bar.h"
+#include "atom/browser/ui/cocoa/root_view_mac.h"
+#include "base/strings/sys_string_conversions.h"
 #include "ui/base/cocoa/window_size_constants.h"
 
 namespace atom {
@@ -21,7 +23,6 @@ bool ScopedDisableResize::disable_resize_ = false;
 @synthesize enableLargerThanScreen;
 @synthesize disableAutoHideCursor;
 @synthesize disableKeyOrMainWindow;
-@synthesize windowButtonsOffset;
 @synthesize vibrantView;
 
 - (id)initWithShell:(atom::NativeWindowMac*)shell
@@ -39,6 +40,13 @@ bool ScopedDisableResize::disable_resize_ = false;
   return shell_;
 }
 
+- (id)accessibilityFocusedUIElement {
+  views::Widget* widget = shell_->widget();
+  id superFocus = [super accessibilityFocusedUIElement];
+  if (!widget || shell_->IsFocused())
+    return superFocus;
+  return nil;
+}
 - (NSRect)originalContentRectForFrameRect:(NSRect)frameRect {
   return [super contentRectForFrameRect:frameRect];
 }
@@ -91,6 +99,10 @@ bool ScopedDisableResize::disable_resize_ = false;
 }
 
 - (id)accessibilityAttributeValue:(NSString*)attribute {
+  if ([attribute isEqual:NSAccessibilityTitleAttribute])
+    return base::SysUTF8ToNSString(shell_->GetTitle());
+  if ([attribute isEqual:NSAccessibilityEnabledAttribute])
+    return [NSNumber numberWithBool:YES];
   if (![attribute isEqualToString:@"AXChildren"])
     return [super accessibilityAttributeValue:attribute];
 
@@ -117,78 +129,6 @@ bool ScopedDisableResize::disable_resize_ = false;
   return !self.disableKeyOrMainWindow;
 }
 
-- (void)enableWindowButtonsOffset {
-  auto closeButton = [self standardWindowButton:NSWindowCloseButton];
-  auto miniaturizeButton =
-      [self standardWindowButton:NSWindowMiniaturizeButton];
-  auto zoomButton = [self standardWindowButton:NSWindowZoomButton];
-
-  [closeButton setPostsFrameChangedNotifications:YES];
-  [miniaturizeButton setPostsFrameChangedNotifications:YES];
-  [zoomButton setPostsFrameChangedNotifications:YES];
-
-  windowButtonsInterButtonSpacing_ =
-      NSMinX([miniaturizeButton frame]) - NSMaxX([closeButton frame]);
-
-  auto center = [NSNotificationCenter defaultCenter];
-
-  [center addObserver:self
-             selector:@selector(adjustCloseButton:)
-                 name:NSViewFrameDidChangeNotification
-               object:closeButton];
-
-  [center addObserver:self
-             selector:@selector(adjustMiniaturizeButton:)
-                 name:NSViewFrameDidChangeNotification
-               object:miniaturizeButton];
-
-  [center addObserver:self
-             selector:@selector(adjustZoomButton:)
-                 name:NSViewFrameDidChangeNotification
-               object:zoomButton];
-}
-
-- (void)adjustCloseButton:(NSNotification*)notification {
-  [self adjustButton:[notification object] ofKind:NSWindowCloseButton];
-}
-
-- (void)adjustMiniaturizeButton:(NSNotification*)notification {
-  [self adjustButton:[notification object] ofKind:NSWindowMiniaturizeButton];
-}
-
-- (void)adjustZoomButton:(NSNotification*)notification {
-  [self adjustButton:[notification object] ofKind:NSWindowZoomButton];
-}
-
-- (void)adjustButton:(NSButton*)button ofKind:(NSWindowButton)kind {
-  NSRect buttonFrame = [button frame];
-  NSRect frameViewBounds = [[self frameView] bounds];
-  NSPoint offset = self.windowButtonsOffset;
-
-  buttonFrame.origin = NSMakePoint(
-      offset.x, (NSHeight(frameViewBounds) - NSHeight(buttonFrame) - offset.y));
-
-  switch (kind) {
-    case NSWindowZoomButton:
-      buttonFrame.origin.x += NSWidth(
-          [[self standardWindowButton:NSWindowMiniaturizeButton] frame]);
-      buttonFrame.origin.x += windowButtonsInterButtonSpacing_;
-      FALLTHROUGH;
-    case NSWindowMiniaturizeButton:
-      buttonFrame.origin.x +=
-          NSWidth([[self standardWindowButton:NSWindowCloseButton] frame]);
-      buttonFrame.origin.x += windowButtonsInterButtonSpacing_;
-      FALLTHROUGH;
-    default:
-      break;
-  }
-
-  BOOL didPost = [button postsBoundsChangedNotifications];
-  [button setPostsFrameChangedNotifications:NO];
-  [button setFrame:buttonFrame];
-  [button setPostsFrameChangedNotifications:didPost];
-}
-
 - (NSView*)frameView {
   return [[self contentView] superview];
 }
@@ -211,12 +151,26 @@ bool ScopedDisableResize::disable_resize_ = false;
 
 // Custom window button methods
 
+- (BOOL)windowShouldClose:(id)sender {
+  return YES;
+}
+
 - (void)performClose:(id)sender {
   if (shell_->title_bar_style() ==
-      atom::NativeWindowMac::CUSTOM_BUTTONS_ON_HOVER)
+      atom::NativeWindowMac::CUSTOM_BUTTONS_ON_HOVER) {
     [[self delegate] windowShouldClose:self];
-  else
+  } else if (shell_->IsSimpleFullScreen()) {
+    if ([[self delegate] respondsToSelector:@selector(windowShouldClose:)]) {
+      if (![[self delegate] windowShouldClose:self])
+        return;
+    } else if ([self respondsToSelector:@selector(windowShouldClose:)]) {
+      if (![self windowShouldClose:self])
+        return;
+    }
+    [self close];
+  } else {
     [super performClose:sender];
+  }
 }
 
 - (void)toggleFullScreenMode:(id)sender {

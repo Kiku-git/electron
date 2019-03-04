@@ -6,16 +6,15 @@
 #define ATOM_COMMON_NATIVE_MATE_CONVERTERS_BLINK_CONVERTER_H_
 
 #include "native_mate/converter.h"
-#include "third_party/WebKit/public/platform/WebCache.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
-#include "third_party/WebKit/public/web/WebContextMenuData.h"
+#include "third_party/blink/public/platform/web_cache.h"
+#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/web/web_context_menu_data.h"
 
 namespace blink {
 class WebMouseEvent;
 class WebMouseWheelEvent;
 class WebKeyboardEvent;
 struct WebDeviceEmulationParams;
-struct WebFindOptions;
 struct WebFloatPoint;
 struct WebPoint;
 struct WebSize;
@@ -96,13 +95,6 @@ struct Converter<blink::WebDeviceEmulationParams> {
 };
 
 template <>
-struct Converter<blink::WebFindOptions> {
-  static bool FromV8(v8::Isolate* isolate,
-                     v8::Local<v8::Value> val,
-                     blink::WebFindOptions* out);
-};
-
-template <>
 struct Converter<blink::WebContextMenuData::MediaType> {
   static v8::Local<v8::Value> ToV8(
       v8::Isolate* isolate,
@@ -131,12 +123,12 @@ struct Converter<blink::WebCache::ResourceTypeStats> {
 };
 
 template <>
-struct Converter<blink::WebReferrerPolicy> {
+struct Converter<network::mojom::ReferrerPolicy> {
   static v8::Local<v8::Value> ToV8(v8::Isolate* isolate,
-                                   const blink::WebReferrerPolicy& in);
+                                   const network::mojom::ReferrerPolicy& in);
   static bool FromV8(v8::Isolate* isolate,
                      v8::Local<v8::Value> val,
-                     blink::WebReferrerPolicy* out);
+                     network::mojom::ReferrerPolicy* out);
 };
 
 v8::Local<v8::Value> EditFlagsToV8(v8::Isolate* isolate, int editFlags);

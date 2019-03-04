@@ -8,7 +8,7 @@ The following is an example of automatically submitting a crash report to a
 remote server:
 
 ```javascript
-const {crashReporter} = require('electron')
+const { crashReporter } = require('electron')
 
 crashReporter.start({
   productName: 'YourName',
@@ -42,7 +42,7 @@ The `crashReporter` module has the following methods:
 ### `crashReporter.start(options)`
 
 * `options` Object
-  * `companyName` String (optional)
+  * `companyName` String
   * `submitURL` String - URL that crash reports will be sent to as POST.
   * `productName` String (optional) - Defaults to `app.getName()`.
   * `uploadToServer` Boolean (optional) - Whether crash reports should be sent to the server
@@ -62,27 +62,27 @@ Therefore, to collect crash reports from them, use `process.crashReporter.start`
 along with an additional one called `crashesDirectory` that should point to a directory to store the crash
 reports temporarily. You can test this out by calling `process.crash()` to crash the child process.
 
-**Note:** To collect crash reports from child process in Windows, you need to add this extra code as well.
-This will start the process that will monitor and send the crash reports. Replace `submitURL`, `productName`
-and `crashesDirectory` with appropriate values.
-
 **Note:** If you need send additional/updated `extra` parameters after your
 first call `start` you can call `addExtraParameter` on macOS or call `start`
 again with the new/updated `extra` parameters on Linux and Windows.
 
+**Note:** To collect crash reports from child process in Windows, you need to add this extra code as well.
+This will start the process that will monitor and send the crash reports. Replace `submitURL`, `productName`
+and `crashesDirectory` with appropriate values.
+
 ```js
- const args = [
-   `--reporter-url=${submitURL}`,
-   `--application-name=${productName}`,
-   `--crashes-directory=${crashesDirectory}`
- ]
- const env = {
-   ELECTRON_INTERNAL_CRASH_SERVICE: 1
- }
- spawn(process.execPath, args, {
-   env: env,
-   detached: true
- })
+const args = [
+  `--reporter-url=${submitURL}`,
+  `--application-name=${productName}`,
+  `--crashes-directory=${crashesDirectory}`
+]
+const env = {
+  ELECTRON_INTERNAL_CRASH_SERVICE: 1
+}
+spawn(process.execPath, args, {
+  env: env,
+  detached: true
+})
 ```
 
 **Note:** On macOS, Electron uses a new `crashpad` client for crash collection and reporting.

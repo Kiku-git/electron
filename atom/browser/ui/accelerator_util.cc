@@ -64,7 +64,6 @@ bool StringToAccelerator(const std::string& shortcut,
   }
 
   *accelerator = ui::Accelerator(key, modifiers);
-  SetPlatformAccelerator(accelerator);
   return true;
 }
 
@@ -78,9 +77,11 @@ void GenerateAcceleratorTable(AcceleratorTable* table,
       GenerateAcceleratorTable(table, submodel);
     } else {
       ui::Accelerator accelerator;
-      if (model->GetAcceleratorAtWithParams(i, true, &accelerator)) {
-        MenuItem item = {i, model};
-        (*table)[accelerator] = item;
+      if (model->ShouldRegisterAcceleratorAt(i)) {
+        if (model->GetAcceleratorAtWithParams(i, true, &accelerator)) {
+          MenuItem item = {i, model};
+          (*table)[accelerator] = item;
+        }
       }
     }
   }
@@ -91,7 +92,9 @@ bool TriggerAcceleratorTableCommand(AcceleratorTable* table,
   if (base::ContainsKey(*table, accelerator)) {
     const accelerator_util::MenuItem& item = (*table)[accelerator];
     if (item.model->IsEnabledAt(item.position)) {
-      item.model->ActivatedAt(item.position);
+      const auto event_flags =
+          accelerator.MaskOutKeyEventFlags(accelerator.modifiers());
+      item.model->ActivatedAt(item.position, event_flags);
       return true;
     }
   }

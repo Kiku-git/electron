@@ -10,8 +10,8 @@
 
 <script type="text/javascript" charset="utf-8">
 (function() {
-  // Disable use of deprecated functions.
-  process.throwDeprecation = true
+  // Deprecated APIs are still supported and should be tested.
+  process.throwDeprecation = false
 
   const path = require('path')
   const electron = require('electron')
@@ -41,12 +41,17 @@
     })
   }
 
-  const { Coverage } = require('electabul')
   const Mocha = require('mocha')
-
-  const mocha = new Mocha(process.env.MOCHA_REPORTER
-    ? { reporter: process.env.MOCHA_REPORTER }
-    : undefined)
+  const mochaOptions = {}
+  if (process.env.MOCHA_REPORTER) {
+    mochaOptions.reporter = process.env.MOCHA_REPORTER
+  }
+  if (process.env.MOCHA_MULTI_REPORTERS) {
+    mochaOptions.reporterOptions = {
+      reporterEnabled: process.env.MOCHA_MULTI_REPORTERS
+    }
+  }
+  const mocha = new Mocha(mochaOptions)
 
   if (!process.env.MOCHA_REPORTER) {
     mocha.ui('bdd').reporter(isCi ? 'tap' : 'html')
@@ -94,14 +99,6 @@
       }
 
       Mocha.utils.highlightTags('code')
-
-      const coverage = new Coverage({
-        libPath: path.join(__dirname, '..', '..', 'lib'),
-        outputPath: path.join(__dirname, '..', '..', 'out', 'coverage'),
-        formats: ['text', 'lcov']
-      })
-      coverage.addCoverage(ipcRenderer.sendSync('get-main-process-coverage'))
-      coverage.generateReport()
 
       if (isCi) {
         ipcRenderer.send('process.exit', runner.failures)

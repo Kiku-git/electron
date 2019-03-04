@@ -5,6 +5,7 @@
 #include "atom/browser/ui/x/x_window_utils.h"
 
 #include <X11/Xatom.h>
+#include <memory>
 
 #include "base/environment.h"
 #include "base/strings/string_util.h"
@@ -85,6 +86,27 @@ bool ShouldUseGlobalMenuBar() {
 
   bus->ShutdownAndBlock();
   return false;
+}
+
+void MoveWindowToForeground(::Window xwindow) {
+  XDisplay* xdisplay = gfx::GetXDisplay();
+  XEvent xclient;
+  memset(&xclient, 0, sizeof(xclient));
+
+  xclient.type = ClientMessage;
+  xclient.xclient.display = xdisplay;
+  xclient.xclient.window = xwindow;
+  xclient.xclient.message_type = GetAtom("_NET_RESTACK_WINDOW");
+  xclient.xclient.format = 32;
+  xclient.xclient.data.l[0] = 2;
+  xclient.xclient.data.l[1] = 0;
+  xclient.xclient.data.l[2] = Above;
+  xclient.xclient.data.l[3] = 0;
+  xclient.xclient.data.l[4] = 0;
+
+  XSendEvent(xdisplay, DefaultRootWindow(xdisplay), x11::False,
+             SubstructureRedirectMask | SubstructureNotifyMask, &xclient);
+  XFlush(xdisplay);
 }
 
 }  // namespace atom

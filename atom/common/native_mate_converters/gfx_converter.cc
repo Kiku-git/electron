@@ -28,10 +28,11 @@ bool Converter<gfx::Point>::FromV8(v8::Isolate* isolate,
   mate::Dictionary dict;
   if (!ConvertFromV8(isolate, val, &dict))
     return false;
-  int x, y;
+  double x, y;
   if (!dict.Get("x", &x) || !dict.Get("y", &y))
     return false;
-  *out = gfx::Point(x, y);
+  *out = gfx::Point(static_cast<int>(std::round(x)),
+                    static_cast<int>(std::round(y)));
   return true;
 }
 
@@ -105,6 +106,22 @@ bool Converter<gfx::Rect>::FromV8(v8::Isolate* isolate,
 }
 
 template <>
+struct Converter<display::Display::AccelerometerSupport> {
+  static v8::Local<v8::Value> ToV8(
+      v8::Isolate* isolate,
+      const display::Display::AccelerometerSupport& val) {
+    switch (val) {
+      case display::Display::AccelerometerSupport::AVAILABLE:
+        return StringToV8(isolate, "available");
+      case display::Display::AccelerometerSupport::UNAVAILABLE:
+        return StringToV8(isolate, "unavailable");
+      default:
+        return StringToV8(isolate, "unknown");
+    }
+  }
+};
+
+template <>
 struct Converter<display::Display::TouchSupport> {
   static v8::Local<v8::Value> ToV8(v8::Isolate* isolate,
                                    const display::Display::TouchSupport& val) {
@@ -127,10 +144,15 @@ v8::Local<v8::Value> Converter<display::Display>::ToV8(
   dict.Set("id", val.id());
   dict.Set("bounds", val.bounds());
   dict.Set("workArea", val.work_area());
+  dict.Set("accelerometerSupport", val.accelerometer_support());
+  dict.Set("monochrome", val.is_monochrome());
+  dict.Set("colorDepth", val.color_depth());
+  dict.Set("depthPerComponent", val.depth_per_component());
   dict.Set("size", val.size());
   dict.Set("workAreaSize", val.work_area_size());
   dict.Set("scaleFactor", val.device_scale_factor());
   dict.Set("rotation", val.RotationAsDegree());
+  dict.Set("internal", val.IsInternal());
   dict.Set("touchSupport", val.touch_support());
   return dict.GetHandle();
 }

@@ -9,7 +9,9 @@
 #include "atom/browser/ui/cocoa/atom_preview_item.h"
 #include "atom/browser/ui/cocoa/atom_touch_bar.h"
 #include "base/mac/mac_util.h"
+#include "ui/views/cocoa/bridged_native_widget_host_impl.h"
 #include "ui/views/widget/native_widget_mac.h"
+#include "ui/views_bridge_mac/bridged_native_widget_impl.h"
 
 @implementation AtomNSWindowDelegate
 
@@ -20,13 +22,13 @@
   // on the fly.
   // TODO(zcbenz): Add interface in NativeWidgetMac to allow overriding creating
   // window delegate.
-  views::BridgedNativeWidget* bridged_view =
-      views::NativeWidgetMac::GetBridgeForNativeWindow(
-          shell->GetNativeWindow());
+  auto* bridge_host = views::BridgedNativeWidgetHostImpl::GetFromNativeWindow(
+      shell->GetNativeWindow());
+  auto* bridged_view = bridge_host->bridge_impl();
   if ((self = [super initWithBridgedNativeWidget:bridged_view])) {
     shell_ = shell;
     is_zooming_ = false;
-    level_ = [shell_->GetNativeWindow() level];
+    level_ = [shell_->GetNativeWindow().GetNativeNSWindow() level];
   }
   return self;
 }
@@ -112,6 +114,15 @@
                extraHeightPlusFrame);
   }
 
+  {
+    bool prevent_default = false;
+    gfx::Rect new_bounds(gfx::Point(sender.frame.origin), gfx::Size(newSize));
+    shell_->NotifyWindowWillResize(new_bounds, &prevent_default);
+    if (prevent_default) {
+      return sender.frame.size;
+    }
+  }
+
   return newSize;
 }
 
@@ -129,7 +140,7 @@
 }
 
 - (void)windowWillMiniaturize:(NSNotification*)notification {
-  NSWindow* window = shell_->GetNativeWindow();
+  NSWindow* window = shell_->GetNativeWindow().GetNativeNSWindow();
   // store the current status window level to be restored in
   // windowDidDeminiaturize
   level_ = [window level];
@@ -143,7 +154,7 @@
 
 - (void)windowDidDeminiaturize:(NSNotification*)notification {
   [super windowDidDeminiaturize:notification];
-  [shell_->GetNativeWindow() setLevel:level_];
+  [shell_->GetNativeWindow().GetNativeNSWindow() setLevel:level_];
   shell_->NotifyWindowRestore();
 }
 
@@ -168,60 +179,56 @@
   shell_->SetResizable(true);
   // Hide the native toolbar before entering fullscreen, so there is no visual
   // artifacts.
-  if (@available(macOS 10.10, *)) {
-    if (shell_->title_bar_style() == atom::NativeWindowMac::HIDDEN_INSET) {
-      NSWindow* window = shell_->GetNativeWindow();
-      [window setToolbar:nil];
-    }
+  if (shell_->title_bar_style() == atom::NativeWindowMac::HIDDEN_INSET) {
+    NSWindow* window = shell_->GetNativeWindow().GetNativeNSWindow();
+    [window setToolbar:nil];
   }
 }
 
 - (void)windowDidEnterFullScreen:(NSNotification*)notification {
   shell_->NotifyWindowEnterFullScreen();
 
-  if (@available(macOS 10.10, *)) {
-    // For frameless window we don't show set title for normal mode since the
-    // titlebar is expected to be empty, but after entering fullscreen mode we
-    // have to set one, because title bar is visible here.
-    NSWindow* window = shell_->GetNativeWindow();
-    if ((shell_->transparent() || !shell_->has_frame()) &&
-        // FIXME(zcbenz): Showing titlebar for hiddenInset window is weird under
-        // fullscreen mode.
-        // Show title if fullscreen_window_title flag is set
-        (shell_->title_bar_style() != atom::NativeWindowMac::HIDDEN_INSET ||
-         shell_->fullscreen_window_title())) {
-      [window setTitleVisibility:NSWindowTitleVisible];
-    }
+  // For frameless window we don't show set title for normal mode since the
+  // titlebar is expected to be empty, but after entering fullscreen mode we
+  // have to set one, because title bar is visible here.
+  NSWindow* window = shell_->GetNativeWindow().GetNativeNSWindow();
+  if ((shell_->transparent() || !shell_->has_frame()) &&
+      // FIXME(zcbenz): Showing titlebar for hiddenInset window is weird under
+      // fullscreen mode.
+      // Show title if fullscreen_window_title flag is set
+      (shell_->title_bar_style() != atom::NativeWindowMac::HIDDEN_INSET ||
+       shell_->fullscreen_window_title())) {
+    [window setTitleVisibility:NSWindowTitleVisible];
+  }
 
-    // Restore the native toolbar immediately after entering fullscreen, if we
-    // do this before leaving fullscreen, traffic light buttons will be jumping.
-    if (shell_->title_bar_style() == atom::NativeWindowMac::HIDDEN_INSET) {
-      base::scoped_nsobject<NSToolbar> toolbar(
-          [[NSToolbar alloc] initWithIdentifier:@"titlebarStylingToolbar"]);
-      [toolbar setShowsBaselineSeparator:NO];
-      [window setToolbar:toolbar];
+  // Restore the native toolbar immediately after entering fullscreen, if we
+  // do this before leaving fullscreen, traffic light buttons will be jumping.
+  if (shell_->title_bar_style() == atom::NativeWindowMac::HIDDEN_INSET) {
+    base::scoped_nsobject<NSToolbar> toolbar(
+        [[NSToolbar alloc] initWithIdentifier:@"titlebarStylingToolbar"]);
+    [toolbar setShowsBaselineSeparator:NO];
+    [window setToolbar:toolbar];
 
-      // Set window style to hide the toolbar, otherwise the toolbar will show
-      // in fullscreen mode.
-      shell_->SetStyleMask(true, NSFullSizeContentViewWindowMask);
-    }
+    // Set window style to hide the toolbar, otherwise the toolbar will show
+    // in fullscreen mode.
+    [window setTitlebarAppearsTransparent:NO];
+    shell_->SetStyleMask(true, NSWindowStyleMaskFullSizeContentView);
   }
 }
 
 - (void)windowWillExitFullScreen:(NSNotification*)notification {
-  if (@available(macOS 10.10, *)) {
-    // Restore the titlebar visibility.
-    NSWindow* window = shell_->GetNativeWindow();
-    if ((shell_->transparent() || !shell_->has_frame()) &&
-        (shell_->title_bar_style() != atom::NativeWindowMac::HIDDEN_INSET ||
-         shell_->fullscreen_window_title())) {
-      [window setTitleVisibility:NSWindowTitleHidden];
-    }
+  // Restore the titlebar visibility.
+  NSWindow* window = shell_->GetNativeWindow().GetNativeNSWindow();
+  if ((shell_->transparent() || !shell_->has_frame()) &&
+      (shell_->title_bar_style() != atom::NativeWindowMac::HIDDEN_INSET ||
+       shell_->fullscreen_window_title())) {
+    [window setTitleVisibility:NSWindowTitleHidden];
+  }
 
-    // Turn off the style for toolbar.
-    if (shell_->title_bar_style() == atom::NativeWindowMac::HIDDEN_INSET) {
-      shell_->SetStyleMask(false, NSFullSizeContentViewWindowMask);
-    }
+  // Turn off the style for toolbar.
+  if (shell_->title_bar_style() == atom::NativeWindowMac::HIDDEN_INSET) {
+    shell_->SetStyleMask(false, NSWindowStyleMaskFullSizeContentView);
+    [window setTitlebarAppearsTransparent:YES];
   }
 }
 
@@ -236,7 +243,10 @@
   // Clears the delegate when window is going to be closed, since EL Capitan it
   // is possible that the methods of delegate would get called after the window
   // has been closed.
-  [shell_->GetNativeWindow() setDelegate:nil];
+  auto* bridge_host = views::BridgedNativeWidgetHostImpl::GetFromNativeWindow(
+      shell_->GetNativeWindow());
+  auto* bridged_view = bridge_host->bridge_impl();
+  bridged_view->OnWindowWillClose();
 }
 
 - (BOOL)windowShouldClose:(id)window {

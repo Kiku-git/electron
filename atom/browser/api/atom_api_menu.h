@@ -47,12 +47,14 @@ class Menu : public mate::TrackableObject<Menu>,
   bool IsCommandIdChecked(int command_id) const override;
   bool IsCommandIdEnabled(int command_id) const override;
   bool IsCommandIdVisible(int command_id) const override;
+  bool ShouldCommandIdWorkWhenHidden(int command_id) const override;
   bool GetAcceleratorForCommandIdWithParams(
       int command_id,
       bool use_default_accelerator,
       ui::Accelerator* accelerator) const override;
+  bool ShouldRegisterAcceleratorForCommandId(int command_id) const override;
   void ExecuteCommand(int command_id, int event_flags) override;
-  void MenuWillShow(ui::SimpleMenuModel* source) override;
+  void OnMenuWillShow(ui::SimpleMenuModel* source) override;
 
   virtual void PopupAt(TopLevelWindow* window,
                        int x,
@@ -91,16 +93,20 @@ class Menu : public mate::TrackableObject<Menu>,
   int GetCommandIdAt(int index) const;
   base::string16 GetLabelAt(int index) const;
   base::string16 GetSublabelAt(int index) const;
+  base::string16 GetAcceleratorTextAt(int index) const;
   bool IsItemCheckedAt(int index) const;
   bool IsEnabledAt(int index) const;
   bool IsVisibleAt(int index) const;
+  bool WorksWhenHiddenAt(int index) const;
 
   // Stored delegate methods.
   base::Callback<bool(v8::Local<v8::Value>, int)> is_checked_;
   base::Callback<bool(v8::Local<v8::Value>, int)> is_enabled_;
   base::Callback<bool(v8::Local<v8::Value>, int)> is_visible_;
+  base::Callback<bool(v8::Local<v8::Value>, int)> works_when_hidden_;
   base::Callback<v8::Local<v8::Value>(v8::Local<v8::Value>, int, bool)>
       get_accelerator_;
+  base::Callback<bool(v8::Local<v8::Value>, int)> should_register_accelerator_;
   base::Callback<void(v8::Local<v8::Value>, v8::Local<v8::Value>, int)>
       execute_command_;
   base::Callback<void(v8::Local<v8::Value>)> menu_will_show_;

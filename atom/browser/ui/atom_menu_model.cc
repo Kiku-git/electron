@@ -8,10 +8,10 @@
 
 namespace atom {
 
-bool AtomMenuModel::Delegate::GetAcceleratorForCommandId(int command_id,
+bool AtomMenuModel::Delegate::GetAcceleratorForCommandId(
+    int command_id,
     ui::Accelerator* accelerator) const {
-  return GetAcceleratorForCommandIdWithParams(
-      command_id, false, accelerator);
+  return GetAcceleratorForCommandIdWithParams(command_id, false, accelerator);
 }
 
 AtomMenuModel::AtomMenuModel(Delegate* delegate)
@@ -41,6 +41,21 @@ bool AtomMenuModel::GetAcceleratorAtWithParams(
         GetCommandIdAt(index), use_default_accelerator, accelerator);
   }
   return false;
+}
+
+bool AtomMenuModel::ShouldRegisterAcceleratorAt(int index) const {
+  if (delegate_) {
+    return delegate_->ShouldRegisterAcceleratorForCommandId(
+        GetCommandIdAt(index));
+  }
+  return true;
+}
+
+bool AtomMenuModel::WorksWhenHiddenAt(int index) const {
+  if (delegate_) {
+    return delegate_->ShouldCommandIdWorkWhenHidden(GetCommandIdAt(index));
+  }
+  return true;
 }
 
 void AtomMenuModel::MenuWillClose() {

@@ -4,7 +4,9 @@
 
 #include "atom/common/native_mate_converters/net_converter.h"
 
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "atom/common/native_mate_converters/gurl_converter.h"
@@ -88,11 +90,11 @@ v8::Local<v8::Value> Converter<scoped_refptr<net::X509Certificate>>::ToV8(
     issuer_intermediates.reserve(intermediate_buffers.size() - 1);
     for (size_t i = 1; i < intermediate_buffers.size(); ++i) {
       issuer_intermediates.push_back(
-          net::x509_util::DupCryptoBuffer(intermediate_buffers[i].get()));
+          bssl::UpRef(intermediate_buffers[i].get()));
     }
     const scoped_refptr<net::X509Certificate>& issuer_cert =
         net::X509Certificate::CreateFromBuffer(
-            net::x509_util::DupCryptoBuffer(intermediate_buffers[0].get()),
+            bssl::UpRef(intermediate_buffers[0].get()),
             std::move(issuer_intermediates));
     dict.Set("issuerCert", issuer_cert);
   }
@@ -117,11 +119,9 @@ bool Converter<scoped_refptr<net::X509Certificate>>::FromV8(
   scoped_refptr<net::X509Certificate> issuer_cert;
   if (dict.Get("issuerCert", &issuer_cert)) {
     std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates;
-    intermediates.push_back(
-        net::x509_util::DupCryptoBuffer(issuer_cert->cert_buffer()));
+    intermediates.push_back(bssl::UpRef(issuer_cert->cert_buffer()));
     auto cert = net::X509Certificate::CreateFromBuffer(
-        net::x509_util::DupCryptoBuffer(leaf_cert->cert_buffer()),
-        std::move(intermediates));
+        bssl::UpRef(leaf_cert->cert_buffer()), std::move(intermediates));
     if (!cert)
       return false;
 
@@ -181,24 +181,45 @@ bool Converter<net::HttpResponseHeaders*>::FromV8(
   if (!val->IsObject()) {
     return false;
   }
+
+  auto addHeaderFromValue = [&isolate, &out](
+                                const std::string& key,
+                                const v8::Local<v8::Value>& localVal) {
+    auto context = isolate->GetCurrentContext();
+    v8::Local<v8::String> localStrVal;
+    if (!localVal->ToString(context).ToLocal(&localStrVal)) {
+      return false;
+    }
+    std::string value;
+    mate::ConvertFromV8(isolate, localStrVal, &value);
+    out->AddHeader(key + ": " + value);
+    return true;
+  };
+
   auto context = isolate->GetCurrentContext();
   auto headers = v8::Local<v8::Object>::Cast(val);
-  auto keys = headers->GetOwnPropertyNames();
+  auto keys = headers->GetOwnPropertyNames(context).ToLocalChecked();
   for (uint32_t i = 0; i < keys->Length(); i++) {
-    v8::Local<v8::String> key, value;
-    if (!keys->Get(i)->ToString(context).ToLocal(&key)) {
+    v8::Local<v8::Value> keyVal;
+    if (!keys->Get(context, i).ToLocal(&keyVal)) {
       return false;
     }
-    if (!headers->Get(key)->ToString(context).ToLocal(&value)) {
-      return false;
+    std::string key;
+    mate::ConvertFromV8(isolate, keyVal, &key);
+
+    auto localVal = headers->Get(context, keyVal).ToLocalChecked();
+    if (localVal->IsArray()) {
+      auto values = v8::Local<v8::Array>::Cast(localVal);
+      for (uint32_t j = 0; j < values->Length(); j++) {
+        if (!addHeaderFromValue(key, values->Get(j))) {
+          return false;
+        }
+      }
+    } else {
+      if (!addHeaderFromValue(key, localVal)) {
+        return false;
+      }
     }
-    v8::String::Utf8Value key_utf8(key);
-    v8::String::Utf8Value value_utf8(value);
-    std::string k(*key_utf8, key_utf8.length());
-    std::string v(*value_utf8, value_utf8.length());
-    std::ostringstream tmp;
-    tmp << k << ": " << v;
-    out->AddHeader(tmp.str());
   }
   return true;
 }

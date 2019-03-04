@@ -5,6 +5,7 @@
 #include "atom/browser/atom_javascript_dialog_manager.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "atom/browser/api/atom_api_web_contents.h"
@@ -62,7 +63,7 @@ void AtomJavaScriptDialogManager::RunJavaScriptDialog(
   std::string checkbox;
   if (origin_counts_[origin] > 1 && web_preferences &&
       web_preferences->IsEnabled("safeDialogs") &&
-      !web_preferences->dict()->GetString("safeDialogsMessage", &checkbox)) {
+      !web_preferences->GetPreference("safeDialogsMessage", &checkbox)) {
     checkbox = "Prevent this app from creating additional dialogs";
   }
 
@@ -71,7 +72,7 @@ void AtomJavaScriptDialogManager::RunJavaScriptDialog(
   if (web_preferences && !web_preferences->IsEnabled(options::kOffscreen)) {
     auto* relay = NativeWindowRelay::FromWebContents(web_contents);
     if (relay)
-      window = relay->window.get();
+      window = relay->GetNativeWindow();
   }
 
   atom::ShowMessageBox(

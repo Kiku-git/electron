@@ -11,15 +11,10 @@
 
 #include "net/cert/cert_verifier.h"
 
-namespace brightray {
-
-class RequireCTDelegate;
-
-}  // namespace brightray
-
 namespace atom {
 
 class CertVerifierRequest;
+class RequireCTDelegate;
 
 struct VerifyRequestParams {
   std::string hostname;
@@ -34,16 +29,16 @@ struct VerifyRequestParams {
 
 class AtomCertVerifier : public net::CertVerifier {
  public:
-  explicit AtomCertVerifier(brightray::RequireCTDelegate* ct_delegate);
+  explicit AtomCertVerifier(RequireCTDelegate* ct_delegate);
   ~AtomCertVerifier() override;
 
   using VerifyProc = base::Callback<void(const VerifyRequestParams& request,
-                                         const net::CompletionCallback&)>;
+                                         net::CompletionOnceCallback)>;
 
   void SetVerifyProc(const VerifyProc& proc);
 
   const VerifyProc verify_proc() const { return verify_proc_; }
-  brightray::RequireCTDelegate* ct_delegate() const { return ct_delegate_; }
+  RequireCTDelegate* ct_delegate() const { return ct_delegate_; }
   net::CertVerifier* default_verifier() const {
     return default_cert_verifier_.get();
   }
@@ -51,12 +46,11 @@ class AtomCertVerifier : public net::CertVerifier {
  protected:
   // net::CertVerifier:
   int Verify(const RequestParams& params,
-             net::CRLSet* crl_set,
              net::CertVerifyResult* verify_result,
-             const net::CompletionCallback& callback,
+             net::CompletionOnceCallback callback,
              std::unique_ptr<Request>* out_req,
              const net::NetLogWithSource& net_log) override;
-  bool SupportsOCSPStapling() override;
+  void SetConfig(const Config& config) override;
 
  private:
   friend class CertVerifierRequest;
@@ -67,7 +61,7 @@ class AtomCertVerifier : public net::CertVerifier {
   std::map<RequestParams, CertVerifierRequest*> inflight_requests_;
   VerifyProc verify_proc_;
   std::unique_ptr<net::CertVerifier> default_cert_verifier_;
-  brightray::RequireCTDelegate* ct_delegate_;
+  RequireCTDelegate* ct_delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(AtomCertVerifier);
 };

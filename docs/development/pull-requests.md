@@ -35,7 +35,7 @@ $ git fetch upstream
 
 Build steps and dependencies differ slightly depending on your operating system.
 See these detailed guides on building Electron locally:
-* [Building on MacOS](https://electronjs.org/docs/development/build-instructions-osx)
+* [Building on MacOS](https://electronjs.org/docs/development/build-instructions-macos)
 * [Building on Linux](https://electronjs.org/docs/development/build-instructions-linux)
 * [Building on Windows](https://electronjs.org/docs/development/build-instructions-windows)
 
@@ -55,7 +55,7 @@ $ git checkout -b my-branch -t upstream/master
 ### Step 4: Code
 
 Most pull requests opened against the `electron/electron` repository include
-changes to either the C/C++ code in the `atom/` or `brightray/` folders,
+changes to either the C/C++ code in the `atom/` folder,
 the JavaScript code in the `lib/` folder, the documentation in `docs/api/`
 or tests in the `spec/` folder.
 
@@ -86,10 +86,7 @@ A good commit message should describe what changed and why. The Electron project
 uses [semantic commit messages](https://conventionalcommits.org/) to streamline
 the release process.
 
-Before a pull request can be merged, it should include at least one semantic
-commit message, though it's not necessary for all commits in the pull request
-to be semantic. Alternatively, you can **update your pull request title**  to
-start with a semantic prefix.
+Before a pull request can be merged, it **must** have a pull request title with a semantic prefix.
 
 Examples of commit messages with semantic prefixes:
 
@@ -108,6 +105,7 @@ Common prefixes:
   - perf: A code change that improves performance
   - refactor: A code change that neither fixes a bug nor adds a feature
   - style: Changes that do not affect the meaning of the code (linting)
+  - vendor: Bumping a dependency like libchromiumcontent or node
 
 Other things to keep in mind when writing a commit message:
 

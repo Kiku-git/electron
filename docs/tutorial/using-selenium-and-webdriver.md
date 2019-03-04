@@ -20,32 +20,33 @@ $ npm install --save-dev spectron
 
 ```javascript
 // A simple test to verify a visible window is opened with a title
-var Application = require('spectron').Application
-var assert = require('assert')
+const Application = require('spectron').Application
+const assert = require('assert')
 
-var app = new Application({
+const myApp = new Application({
   path: '/Applications/MyApp.app/Contents/MacOS/MyApp'
 })
 
-app.start().then(function () {
-  // Check if the window is visible
-  return app.browserWindow.isVisible()
-}).then(function (isVisible) {
-  // Verify the window is visible
-  assert.equal(isVisible, true)
-}).then(function () {
-  // Get the window's title
-  return app.client.getTitle()
-}).then(function (title) {
-  // Verify the window's title
-  assert.equal(title, 'My App')
-}).catch(function (error) {
-  // Log any failures
-  console.error('Test failed', error.message)
-}).then(function () {
+const verifyWindowIsVisibleWithTitle = async (app) => {
+  await app.start()
+  try {
+    // Check if the window is visible
+    const isVisible = await app.browserWindow.isVisible()
+    // Verify the window is visible
+    assert.strictEqual(isVisible, true)
+    // Get the window's title
+    const title = await app.client.getTitle()
+    // Verify the window's title
+    assert.strictEqual(title, 'My App')
+  } catch (error) {
+    // Log any failures
+    console.error('Test failed', error.message)
+  }
   // Stop the application
-  return app.stop()
-})
+  await app.stop()
+}
+
+verifyWindowIsVisibleWithTitle(myApp)
 ```
 
 ## Setting up with WebDriverJs
@@ -135,12 +136,12 @@ $ npm install webdriverio
 const webdriverio = require('webdriverio')
 const options = {
   host: 'localhost', // Use localhost as chrome driver server
-  port: 9515,        // "9515" is the port opened by chrome driver.
+  port: 9515, // "9515" is the port opened by chrome driver.
   desiredCapabilities: {
     browserName: 'chrome',
     chromeOptions: {
       binary: '/Path-to-Your-App/electron', // Path to your Electron binary.
-      args: [/* cli arguments */]           // Optional, perhaps 'app=' + /path/to/your/app/
+      args: [/* cli arguments */] // Optional, perhaps 'app=' + /path/to/your/app/
     }
   }
 }
@@ -164,7 +165,7 @@ To test your application without rebuilding Electron,
 [place](https://github.com/electron/electron/blob/master/docs/tutorial/application-distribution.md)
 your app source into Electron's resource directory.
 
-Alternatively, pass an argument to run with your electron binary that points to
+Alternatively, pass an argument to run with your Electron binary that points to
 your app's folder. This eliminates the need to copy-paste your app into
 Electron's resource directory.
 

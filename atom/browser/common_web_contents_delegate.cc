@@ -4,10 +4,13 @@
 
 #include "atom/browser/common_web_contents_delegate.h"
 
+#include <memory>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "atom/browser/atom_browser_client.h"
 #include "atom/browser/atom_browser_context.h"
 #include "atom/browser/native_window.h"
 #include "atom/browser/ui/file_dialog.h"
@@ -16,25 +19,38 @@
 #include "atom/common/atom_constants.h"
 #include "atom/common/options_switches.h"
 #include "base/files/file_util.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/json/json_reader.h"
+#include "base/task/post_task.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
-#include "chrome/browser/printing/print_preview_message_handler.h"
-#include "chrome/browser/printing/print_view_manager_basic.h"
 #include "chrome/browser/ssl/security_state_tab_helper.h"
-#include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/color_chooser.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/security_state/content/content_utils.h"
 #include "components/security_state/core/security_state.h"
+#include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
+#include "content/public/browser/file_select_listener.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/security_style_explanation.h"
 #include "content/public/browser/security_style_explanations.h"
+#include "printing/buildflags/buildflags.h"
 #include "storage/browser/fileapi/isolated_context.h"
+
+#if BUILDFLAG(ENABLE_OSR)
+#include "atom/browser/osr/osr_web_contents_view.h"
+#endif
+
+#if BUILDFLAG(ENABLE_PRINTING)
+#include "atom/browser/printing/print_preview_message_handler.h"
+#include "chrome/browser/printing/print_view_manager_basic.h"
+#include "components/printing/browser/print_manager_utils.h"
+#endif
 
 using content::BrowserThread;
 
@@ -46,13 +62,16 @@ const char kRootName[] = "<root>";
 
 struct FileSystem {
   FileSystem() {}
-  FileSystem(const std::string& file_system_name,
+  FileSystem(const std::string& type,
+             const std::string& file_system_name,
              const std::string& root_url,
              const std::string& file_system_path)
-      : file_system_name(file_system_name),
+      : type(type),
+        file_system_name(file_system_name),
         root_url(root_url),
         file_system_path(file_system_path) {}
 
+  std::string type;
   std::string file_system_name;
   std::string root_url;
   std::string file_system_path;
@@ -82,19 +101,21 @@ std::string RegisterFileSystem(content::WebContents* web_contents,
 
 FileSystem CreateFileSystemStruct(content::WebContents* web_contents,
                                   const std::string& file_system_id,
-                                  const std::string& file_system_path) {
+                                  const std::string& file_system_path,
+                                  const std::string& type) {
   const GURL origin = web_contents->GetURL().GetOrigin();
   std::string file_system_name =
       storage::GetIsolatedFileSystemName(origin, file_system_id);
   std::string root_url = storage::GetIsolatedFileSystemRootURIString(
       origin, file_system_id, kRootName);
-  return FileSystem(file_system_name, root_url, file_system_path);
+  return FileSystem(type, file_system_name, root_url, file_system_path);
 }
 
 std::unique_ptr<base::DictionaryValue> CreateFileSystemValue(
     const FileSystem& file_system) {
   std::unique_ptr<base::DictionaryValue> file_system_value(
       new base::DictionaryValue());
+  file_system_value->SetString("type", file_system.type);
   file_system_value->SetString("fileSystemName", file_system.file_system_name);
   file_system_value->SetString("rootURL", file_system.root_url);
   file_system_value->SetString("fileSystemPath", file_system.file_system_path);
@@ -102,14 +123,14 @@ std::unique_ptr<base::DictionaryValue> CreateFileSystemValue(
 }
 
 void WriteToFile(const base::FilePath& path, const std::string& content) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::WILL_BLOCK);
   DCHECK(!path.empty());
 
   base::WriteFile(path, content.data(), content.size());
 }
 
 void AppendToFile(const base::FilePath& path, const std::string& content) {
-  base::AssertBlockingAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::WILL_BLOCK);
   DCHECK(!path.empty());
 
   base::AppendToFile(path, content.data(), content.size());
@@ -120,16 +141,18 @@ PrefService* GetPrefService(content::WebContents* web_contents) {
   return static_cast<atom::AtomBrowserContext*>(context)->prefs();
 }
 
-std::set<std::string> GetAddedFileSystemPaths(
+std::map<std::string, std::string> GetAddedFileSystemPaths(
     content::WebContents* web_contents) {
   auto* pref_service = GetPrefService(web_contents);
   const base::DictionaryValue* file_system_paths_value =
       pref_service->GetDictionary(prefs::kDevToolsFileSystemPaths);
-  std::set<std::string> result;
+  std::map<std::string, std::string> result;
   if (file_system_paths_value) {
     base::DictionaryValue::Iterator it(*file_system_paths_value);
     for (; !it.IsAtEnd(); it.Advance()) {
-      result.insert(it.key());
+      std::string type =
+          it.value().is_string() ? it.value().GetString() : std::string();
+      result[it.key()] = type;
     }
   }
   return result;
@@ -146,26 +169,33 @@ bool IsDevToolsFileSystemAdded(content::WebContents* web_contents,
 CommonWebContentsDelegate::CommonWebContentsDelegate()
     : devtools_file_system_indexer_(new DevToolsFileSystemIndexer),
       file_task_runner_(
-          base::CreateSequencedTaskRunnerWithTraits({base::MayBlock()})) {}
+          base::CreateSequencedTaskRunnerWithTraits({base::MayBlock()})),
+      weak_factory_(this) {}
 
 CommonWebContentsDelegate::~CommonWebContentsDelegate() {}
 
 void CommonWebContentsDelegate::InitWithWebContents(
     content::WebContents* web_contents,
-    AtomBrowserContext* browser_context) {
+    AtomBrowserContext* browser_context,
+    bool is_guest) {
   browser_context_ = browser_context;
   web_contents->SetDelegate(this);
 
+#if BUILDFLAG(ENABLE_PRINTING)
+  PrintPreviewMessageHandler::CreateForWebContents(web_contents);
   printing::PrintViewManagerBasic::CreateForWebContents(web_contents);
-  printing::PrintPreviewMessageHandler::CreateForWebContents(web_contents);
+  printing::CreateCompositeClientIfNeeded(web_contents,
+                                          browser_context->GetUserAgent());
+#endif
 
   // Determien whether the WebContents is offscreen.
   auto* web_preferences = WebContentsPreferences::From(web_contents);
   offscreen_ =
-      !web_preferences || web_preferences->IsEnabled(options::kOffscreen);
+      web_preferences && web_preferences->IsEnabled(options::kOffscreen);
 
   // Create InspectableWebContents.
-  web_contents_.reset(brightray::InspectableWebContents::Create(web_contents));
+  web_contents_.reset(InspectableWebContents::Create(
+      web_contents, browser_context->prefs(), is_guest));
   web_contents_->SetDelegate(this);
 }
 
@@ -176,24 +206,40 @@ void CommonWebContentsDelegate::SetOwnerWindow(NativeWindow* owner_window) {
 void CommonWebContentsDelegate::SetOwnerWindow(
     content::WebContents* web_contents,
     NativeWindow* owner_window) {
-  owner_window_ = owner_window ? owner_window->GetWeakPtr() : nullptr;
-  auto relay = std::make_unique<NativeWindowRelay>(owner_window_);
-  auto* relay_key = relay->key;
   if (owner_window) {
-#if defined(TOOLKIT_VIEWS) && !defined(OS_MACOSX)
+    owner_window_ = owner_window->GetWeakPtr();
+#if defined(TOOLKIT_VIEWS)
     autofill_popup_.reset(new AutofillPopup());
 #endif
-    web_contents->SetUserData(relay_key, std::move(relay));
+    NativeWindowRelay::CreateForWebContents(web_contents,
+                                            owner_window->GetWeakPtr());
   } else {
-    web_contents->RemoveUserData(relay_key);
-    relay.reset();
+    owner_window_ = nullptr;
+    web_contents->RemoveUserData(NativeWindowRelay::UserDataKey());
   }
+#if BUILDFLAG(ENABLE_OSR)
+  auto* osr_wcv = GetOffScreenWebContentsView();
+  if (osr_wcv)
+    osr_wcv->SetNativeWindow(owner_window);
+#endif
 }
 
 void CommonWebContentsDelegate::ResetManagedWebContents(bool async) {
   if (async) {
-    base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE,
-                                                    web_contents_.release());
+    // Browser context should be destroyed only after the WebContents,
+    // this is guaranteed in the sync mode by the order of declaration,
+    // in the async version we maintain a reference until the WebContents
+    // is destroyed.
+    // //electron/patches/common/chromium/content_browser_main_loop.patch
+    // is required to get the right quit closure for the main message loop.
+    base::ThreadTaskRunnerHandle::Get()->PostNonNestableTask(
+        FROM_HERE,
+        base::BindOnce(
+            [](scoped_refptr<AtomBrowserContext> browser_context,
+               std::unique_ptr<InspectableWebContents> web_contents) {
+              web_contents.reset();
+            },
+            base::RetainedRef(browser_context_), std::move(web_contents_)));
   } else {
     web_contents_.reset();
   }
@@ -212,6 +258,13 @@ content::WebContents* CommonWebContentsDelegate::GetDevToolsWebContents()
   return web_contents_->GetDevToolsWebContents();
 }
 
+#if BUILDFLAG(ENABLE_OSR)
+OffScreenWebContentsView*
+CommonWebContentsDelegate::GetOffScreenWebContentsView() const {
+  return nullptr;
+}
+#endif
+
 content::WebContents* CommonWebContentsDelegate::OpenURLFromTab(
     content::WebContents* source,
     const content::OpenURLParams& params) {
@@ -222,6 +275,7 @@ content::WebContents* CommonWebContentsDelegate::OpenURLFromTab(
   load_url_params.should_replace_current_entry =
       params.should_replace_current_entry;
   load_url_params.is_renderer_initiated = params.is_renderer_initiated;
+  load_url_params.initiator_origin = params.initiator_origin;
   load_url_params.should_clear_history_list = true;
 
   source->GetController().LoadURLWithParams(load_url_params);
@@ -236,33 +290,41 @@ content::ColorChooser* CommonWebContentsDelegate::OpenColorChooser(
     content::WebContents* web_contents,
     SkColor color,
     const std::vector<blink::mojom::ColorSuggestionPtr>& suggestions) {
+#if BUILDFLAG(ENABLE_COLOR_CHOOSER)
   return chrome::ShowColorChooser(web_contents, color);
+#else
+  return nullptr;
+#endif
 }
 
 void CommonWebContentsDelegate::RunFileChooser(
     content::RenderFrameHost* render_frame_host,
-    const content::FileChooserParams& params) {
+    std::unique_ptr<content::FileSelectListener> listener,
+    const blink::mojom::FileChooserParams& params) {
   if (!web_dialog_helper_)
     web_dialog_helper_.reset(new WebDialogHelper(owner_window(), offscreen_));
-  web_dialog_helper_->RunFileChooser(render_frame_host, params);
+  web_dialog_helper_->RunFileChooser(render_frame_host, std::move(listener),
+                                     params);
 }
 
-void CommonWebContentsDelegate::EnumerateDirectory(content::WebContents* guest,
-                                                   int request_id,
-                                                   const base::FilePath& path) {
+void CommonWebContentsDelegate::EnumerateDirectory(
+    content::WebContents* guest,
+    std::unique_ptr<content::FileSelectListener> listener,
+    const base::FilePath& path) {
   if (!web_dialog_helper_)
     web_dialog_helper_.reset(new WebDialogHelper(owner_window(), offscreen_));
-  web_dialog_helper_->EnumerateDirectory(guest, request_id, path);
+  web_dialog_helper_->EnumerateDirectory(guest, std::move(listener), path);
 }
 
 void CommonWebContentsDelegate::EnterFullscreenModeForTab(
     content::WebContents* source,
-    const GURL& origin) {
+    const GURL& origin,
+    const blink::WebFullscreenOptions& options) {
   if (!owner_window_)
     return;
   SetHtmlApiFullscreen(true);
   owner_window_->NotifyWindowEnterHtmlFullScreen();
-  source->GetRenderViewHost()->GetWidget()->WasResized();
+  source->GetRenderViewHost()->GetWidget()->SynchronizeVisualProperties();
 }
 
 void CommonWebContentsDelegate::ExitFullscreenModeForTab(
@@ -271,7 +333,7 @@ void CommonWebContentsDelegate::ExitFullscreenModeForTab(
     return;
   SetHtmlApiFullscreen(false);
   owner_window_->NotifyWindowLeaveHtmlFullScreen();
-  source->GetRenderViewHost()->GetWidget()->WasResized();
+  source->GetRenderViewHost()->GetWidget()->SynchronizeVisualProperties();
 }
 
 bool CommonWebContentsDelegate::IsFullscreenForTabOrPending(
@@ -289,6 +351,19 @@ blink::WebSecurityStyle CommonWebContentsDelegate::GetSecurityStyle(
   helper->GetSecurityInfo(&security_info);
   return security_state::GetSecurityStyle(security_info,
                                           security_style_explanations);
+}
+
+bool CommonWebContentsDelegate::TakeFocus(content::WebContents* source,
+                                          bool reverse) {
+  if (source && source->GetOutermostWebContents() == source) {
+    // If this is the outermost web contents and the user has tabbed or
+    // shift + tabbed through all the elements, reset the focus back to
+    // the first or last element so that it doesn't stay in the body.
+    source->FocusThroughTabTraversal(reverse);
+    return true;
+  }
+
+  return false;
 }
 
 void CommonWebContentsDelegate::DevToolsSaveToFile(const std::string& url,
@@ -349,11 +424,13 @@ void CommonWebContentsDelegate::DevToolsRequestFileSystems() {
 
   std::vector<FileSystem> file_systems;
   for (const auto& file_system_path : file_system_paths) {
-    base::FilePath path = base::FilePath::FromUTF8Unsafe(file_system_path);
+    base::FilePath path =
+        base::FilePath::FromUTF8Unsafe(file_system_path.first);
     std::string file_system_id =
         RegisterFileSystem(GetDevToolsWebContents(), path);
-    FileSystem file_system = CreateFileSystemStruct(
-        GetDevToolsWebContents(), file_system_id, file_system_path);
+    FileSystem file_system =
+        CreateFileSystemStruct(GetDevToolsWebContents(), file_system_id,
+                               file_system_path.first, file_system_path.second);
     file_systems.push_back(file_system);
   }
 
@@ -365,6 +442,7 @@ void CommonWebContentsDelegate::DevToolsRequestFileSystems() {
 }
 
 void CommonWebContentsDelegate::DevToolsAddFileSystem(
+    const std::string& type,
     const base::FilePath& file_system_path) {
   base::FilePath path = file_system_path;
   if (path.empty()) {
@@ -385,17 +463,16 @@ void CommonWebContentsDelegate::DevToolsAddFileSystem(
     return;
 
   FileSystem file_system = CreateFileSystemStruct(
-      GetDevToolsWebContents(), file_system_id, path.AsUTF8Unsafe());
+      GetDevToolsWebContents(), file_system_id, path.AsUTF8Unsafe(), type);
   std::unique_ptr<base::DictionaryValue> file_system_value(
       CreateFileSystemValue(file_system));
 
   auto* pref_service = GetPrefService(GetDevToolsWebContents());
   DictionaryPrefUpdate update(pref_service, prefs::kDevToolsFileSystemPaths);
   update.Get()->SetWithoutPathExpansion(path.AsUTF8Unsafe(),
-                                        std::make_unique<base::Value>());
-
-  web_contents_->CallClientFunction("DevToolsAPI.fileSystemAdded",
-                                    file_system_value.get(), nullptr, nullptr);
+                                        std::make_unique<base::Value>(type));
+  web_contents_->CallClientFunction("DevToolsAPI.fileSystemAdded", nullptr,
+                                    file_system_value.get(), nullptr);
 }
 
 void CommonWebContentsDelegate::DevToolsRemoveFileSystem(
@@ -418,24 +495,37 @@ void CommonWebContentsDelegate::DevToolsRemoveFileSystem(
 
 void CommonWebContentsDelegate::DevToolsIndexPath(
     int request_id,
-    const std::string& file_system_path) {
+    const std::string& file_system_path,
+    const std::string& excluded_folders_message) {
   if (!IsDevToolsFileSystemAdded(GetDevToolsWebContents(), file_system_path)) {
     OnDevToolsIndexingDone(request_id, file_system_path);
     return;
   }
   if (devtools_indexing_jobs_.count(request_id) != 0)
     return;
+  std::vector<std::string> excluded_folders;
+  std::unique_ptr<base::Value> parsed_excluded_folders =
+      base::JSONReader::Read(excluded_folders_message);
+  if (parsed_excluded_folders && parsed_excluded_folders->is_list()) {
+    const std::vector<base::Value>& folder_paths =
+        parsed_excluded_folders->GetList();
+    for (const base::Value& folder_path : folder_paths) {
+      if (folder_path.is_string())
+        excluded_folders.push_back(folder_path.GetString());
+    }
+  }
   devtools_indexing_jobs_[request_id] =
       scoped_refptr<DevToolsFileSystemIndexer::FileSystemIndexingJob>(
           devtools_file_system_indexer_->IndexPath(
-              file_system_path,
+              file_system_path, excluded_folders,
               base::Bind(
                   &CommonWebContentsDelegate::OnDevToolsIndexingWorkCalculated,
-                  base::Unretained(this), request_id, file_system_path),
+                  weak_factory_.GetWeakPtr(), request_id, file_system_path),
               base::Bind(&CommonWebContentsDelegate::OnDevToolsIndexingWorked,
-                         base::Unretained(this), request_id, file_system_path),
+                         weak_factory_.GetWeakPtr(), request_id,
+                         file_system_path),
               base::Bind(&CommonWebContentsDelegate::OnDevToolsIndexingDone,
-                         base::Unretained(this), request_id,
+                         weak_factory_.GetWeakPtr(), request_id,
                          file_system_path)));
 }
 
@@ -459,7 +549,7 @@ void CommonWebContentsDelegate::DevToolsSearchInPath(
   devtools_file_system_indexer_->SearchInPath(
       file_system_path, query,
       base::Bind(&CommonWebContentsDelegate::OnDevToolsSearchCompleted,
-                 base::Unretained(this), request_id, file_system_path));
+                 weak_factory_.GetWeakPtr(), request_id, file_system_path));
 }
 
 void CommonWebContentsDelegate::OnDevToolsIndexingWorkCalculated(
@@ -529,6 +619,26 @@ void CommonWebContentsDelegate::SetHtmlApiFullscreen(bool enter_fullscreen) {
   owner_window_->SetFullScreen(enter_fullscreen);
   html_fullscreen_ = enter_fullscreen;
   native_fullscreen_ = false;
+}
+
+void CommonWebContentsDelegate::ShowAutofillPopup(
+    content::RenderFrameHost* frame_host,
+    content::RenderFrameHost* embedder_frame_host,
+    bool offscreen,
+    const gfx::RectF& bounds,
+    const std::vector<base::string16>& values,
+    const std::vector<base::string16>& labels) {
+  if (!owner_window())
+    return;
+
+  autofill_popup_->CreateView(frame_host, embedder_frame_host, offscreen,
+                              owner_window()->content_view(), bounds);
+  autofill_popup_->SetItems(values, labels);
+}
+
+void CommonWebContentsDelegate::HideAutofillPopup() {
+  if (autofill_popup_)
+    autofill_popup_->Hide();
 }
 
 }  // namespace atom

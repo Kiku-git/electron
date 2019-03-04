@@ -8,7 +8,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "content/public/renderer/render_frame.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 
 using blink::WebLocalFrame;
 
@@ -29,14 +29,17 @@ content::RenderFrame* GetCurrentRenderFrame() {
 // static
 void RemoteObjectFreer::BindTo(v8::Isolate* isolate,
                                v8::Local<v8::Object> target,
+                               const std::string& context_id,
                                int object_id) {
-  new RemoteObjectFreer(isolate, target, object_id);
+  new RemoteObjectFreer(isolate, target, context_id, object_id);
 }
 
 RemoteObjectFreer::RemoteObjectFreer(v8::Isolate* isolate,
                                      v8::Local<v8::Object> target,
+                                     const std::string& context_id,
                                      int object_id)
     : ObjectLifeMonitor(isolate, target),
+      context_id_(context_id),
       object_id_(object_id),
       routing_id_(MSG_ROUTING_NONE) {
   content::RenderFrame* render_frame = GetCurrentRenderFrame();
@@ -53,12 +56,12 @@ void RemoteObjectFreer::RunDestructor() {
   if (!render_frame)
     return;
 
-  base::string16 channel = base::ASCIIToUTF16("ipc-message");
+  auto* channel = "ELECTRON_BROWSER_DEREFERENCE";
   base::ListValue args;
-  args.AppendString("ELECTRON_BROWSER_DEREFERENCE");
+  args.AppendString(context_id_);
   args.AppendInteger(object_id_);
   render_frame->Send(new AtomFrameHostMsg_Message(render_frame->GetRoutingID(),
-                                                  channel, args));
+                                                  true, channel, args));
 }
 
 }  // namespace atom

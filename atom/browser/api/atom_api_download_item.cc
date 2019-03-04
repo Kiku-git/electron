@@ -8,6 +8,7 @@
 
 #include "atom/browser/atom_browser_main_parts.h"
 #include "atom/common/native_mate_converters/callback.h"
+#include "atom/common/native_mate_converters/file_dialog_converter.h"
 #include "atom/common/native_mate_converters/file_path_converter.h"
 #include "atom/common/native_mate_converters/gurl_converter.h"
 #include "base/strings/utf_string_conversions.h"
@@ -102,7 +103,7 @@ bool DownloadItem::IsPaused() const {
 }
 
 void DownloadItem::Resume() {
-  download_item_->Resume();
+  download_item_->Resume(true /* user_gesture */);
 }
 
 bool DownloadItem::CanResume() const {
@@ -165,6 +166,15 @@ base::FilePath DownloadItem::GetSavePath() const {
   return save_path_;
 }
 
+file_dialog::DialogSettings DownloadItem::GetSaveDialogOptions() const {
+  return dialog_options_;
+}
+
+void DownloadItem::SetSaveDialogOptions(
+    const file_dialog::DialogSettings& options) {
+  dialog_options_ = options;
+}
+
 std::string DownloadItem::GetLastModifiedTime() const {
   return download_item_->GetLastModifiedTime();
 }
@@ -200,6 +210,8 @@ void DownloadItem::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("isDone", &DownloadItem::IsDone)
       .SetMethod("setSavePath", &DownloadItem::SetSavePath)
       .SetMethod("getSavePath", &DownloadItem::GetSavePath)
+      .SetMethod("setSaveDialogOptions", &DownloadItem::SetSaveDialogOptions)
+      .SetMethod("getSaveDialogOptions", &DownloadItem::GetSaveDialogOptions)
       .SetMethod("getLastModifiedTime", &DownloadItem::GetLastModifiedTime)
       .SetMethod("getETag", &DownloadItem::GetETag)
       .SetMethod("getStartTime", &DownloadItem::GetStartTime);
@@ -232,8 +244,9 @@ void Initialize(v8::Local<v8::Object> exports,
                 void* priv) {
   v8::Isolate* isolate = context->GetIsolate();
   mate::Dictionary(isolate, exports)
-      .Set("DownloadItem",
-           atom::api::DownloadItem::GetConstructor(isolate)->GetFunction());
+      .Set("DownloadItem", atom::api::DownloadItem::GetConstructor(isolate)
+                               ->GetFunction(context)
+                               .ToLocalChecked());
 }
 
 }  // namespace

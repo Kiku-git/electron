@@ -7,6 +7,9 @@
 
 #include <string>
 
+#include "atom/browser/login_handler.h"
+#include "base/memory/scoped_refptr.h"
+#include "base/observer_list_types.h"
 #include "build/build_config.h"
 
 namespace base {
@@ -15,9 +18,7 @@ class DictionaryValue;
 
 namespace atom {
 
-class LoginHandler;
-
-class BrowserObserver {
+class BrowserObserver : public base::CheckedObserver {
  public:
   // The browser is about to close all windows.
   virtual void OnBeforeQuit(bool* prevent_default) {}
@@ -49,7 +50,7 @@ class BrowserObserver {
   virtual void OnFinishLaunching(const base::DictionaryValue& launch_info) {}
 
   // The browser requests HTTP login.
-  virtual void OnLogin(LoginHandler* login_handler,
+  virtual void OnLogin(scoped_refptr<LoginHandler> login_handler,
                        const base::DictionaryValue& request_details) {}
 
   // The browser's accessibility suppport has changed.
@@ -83,7 +84,7 @@ class BrowserObserver {
 #endif
 
  protected:
-  virtual ~BrowserObserver() {}
+  ~BrowserObserver() override {}
 };
 
 }  // namespace atom

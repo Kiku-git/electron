@@ -1,16 +1,22 @@
 'use strict'
 
+const assert = require('assert')
 const chai = require('chai')
+const ChildProcess = require('child_process')
 const dirtyChai = require('dirty-chai')
-const {closeWindow} = require('./window-helpers')
+const path = require('path')
+const { emittedOnce } = require('./events-helpers')
+const { closeWindow } = require('./window-helpers')
 
-const {remote} = require('electron')
-const {BrowserView, BrowserWindow} = remote
+const { remote } = require('electron')
+const { BrowserView, BrowserWindow } = remote
 
-const {expect} = chai
+const { expect } = chai
 chai.use(dirtyChai)
 
 describe('BrowserView module', () => {
+  const fixtures = path.resolve(__dirname, 'fixtures')
+
   let w = null
   let view = null
 
@@ -116,13 +122,61 @@ describe('BrowserView module', () => {
       w.setBrowserView(view)
       expect(view.id).to.not.be.null()
 
-      let view2 = w.getBrowserView()
+      const view2 = w.getBrowserView()
       expect(view2.webContents.id).to.equal(view.webContents.id)
     })
 
     it('returns null if none is set', () => {
-      let view = w.getBrowserView()
+      const view = w.getBrowserView()
       expect(view).to.be.null()
+    })
+  })
+
+  describe('BrowserWindow.addBrowserView()', () => {
+    it('does not throw for valid args', () => {
+      let view1 = new BrowserView()
+      w.addBrowserView(view1)
+      let view2 = new BrowserView()
+      w.addBrowserView(view2)
+      view1.destroy()
+      view1 = null
+      view2.destroy()
+      view2 = null
+    })
+    it('does not throw if called multiple times with same view', () => {
+      view = new BrowserView()
+      w.addBrowserView(view)
+      w.addBrowserView(view)
+      w.addBrowserView(view)
+    })
+  })
+
+  describe('BrowserWindow.removeBrowserView()', () => {
+    it('does not throw if called multiple times with same view', () => {
+      view = new BrowserView()
+      w.addBrowserView(view)
+      w.removeBrowserView(view)
+      w.removeBrowserView(view)
+    })
+  })
+
+  describe('BrowserWindow.getBrowserViews()', () => {
+    it('returns same views as was added', () => {
+      let view1 = new BrowserView()
+      w.addBrowserView(view1)
+      let view2 = new BrowserView()
+      w.addBrowserView(view2)
+
+      expect(view1.id).to.be.not.null()
+      const views = w.getBrowserViews()
+      expect(views.length).to.equal(2)
+      expect(views[0].webContents.id).to.equal(view1.webContents.id)
+      expect(views[1].webContents.id).to.equal(view2.webContents.id)
+
+      view1.destroy()
+      view1 = null
+      view2.destroy()
+      view2 = null
     })
   })
 
@@ -145,7 +199,7 @@ describe('BrowserView module', () => {
       w.setBrowserView(view)
       expect(view.id).to.not.be.null()
 
-      let view2 = BrowserView.fromId(view.id)
+      const view2 = BrowserView.fromId(view.id)
       expect(view2.webContents.id).to.equal(view.webContents.id)
     })
   })
@@ -156,7 +210,7 @@ describe('BrowserView module', () => {
       w.setBrowserView(view)
       expect(view.id).to.not.be.null()
 
-      let view2 = BrowserView.fromWebContents(view.webContents)
+      const view2 = BrowserView.fromWebContents(view.webContents)
       expect(view2.webContents.id).to.equal(view.webContents.id)
     })
   })
@@ -170,6 +224,31 @@ describe('BrowserView module', () => {
       const views = BrowserView.getAllViews()
       expect(views).to.be.an('array').that.has.lengthOf(1)
       expect(views[0].webContents.id).to.equal(view.webContents.id)
+    })
+  })
+
+  describe('new BrowserView()', () => {
+    it('does not crash on exit', async () => {
+      const appPath = path.join(fixtures, 'api', 'leak-exit-browserview.js')
+      const electronPath = remote.getGlobal('process').execPath
+      const appProcess = ChildProcess.spawn(electronPath, [appPath])
+      const [code] = await emittedOnce(appProcess, 'close')
+      expect(code).to.equal(0)
+    })
+  })
+
+  describe('window.open()', () => {
+    it('works in BrowserView', (done) => {
+      view = new BrowserView()
+      w.setBrowserView(view)
+      view.webContents.once('new-window', (e, url, frameName, disposition, options, additionalFeatures) => {
+        e.preventDefault()
+        assert.strictEqual(url, 'http://host/')
+        assert.strictEqual(frameName, 'host')
+        assert.strictEqual(additionalFeatures[0], 'this-is-not-a-standard-feature')
+        done()
+      })
+      view.webContents.loadFile(path.join(fixtures, 'pages', 'window-open.html'))
     })
   })
 })

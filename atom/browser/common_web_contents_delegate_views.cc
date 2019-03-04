@@ -6,6 +6,7 @@
 
 #include "atom/browser/api/atom_api_web_contents_view.h"
 #include "atom/browser/native_window_views.h"
+#include "atom/browser/web_contents_preferences.h"
 #include "base/strings/string_util.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -16,37 +17,28 @@
 
 namespace atom {
 
-void CommonWebContentsDelegate::HandleKeyboardEvent(
+bool CommonWebContentsDelegate::HandleKeyboardEvent(
     content::WebContents* source,
     const content::NativeWebKeyboardEvent& event) {
   // Escape exits tabbed fullscreen mode.
-  if (event.windows_key_code == ui::VKEY_ESCAPE && is_html_fullscreen())
+  if (event.windows_key_code == ui::VKEY_ESCAPE && is_html_fullscreen()) {
     ExitFullscreenModeForTab(source);
+    return true;
+  }
+
+  // Check if the webContents has preferences and to ignore shortcuts
+  auto* web_preferences = WebContentsPreferences::From(source);
+  if (web_preferences &&
+      web_preferences->IsEnabled("ignoreMenuShortcuts", false))
+    return false;
 
   // Let the NativeWindow handle other parts.
-  if (!ignore_menu_shortcuts_ && owner_window())
+  if (owner_window()) {
     owner_window()->HandleKeyboardEvent(source, event);
-}
+    return true;
+  }
 
-void CommonWebContentsDelegate::ShowAutofillPopup(
-    content::RenderFrameHost* frame_host,
-    content::RenderFrameHost* embedder_frame_host,
-    bool offscreen,
-    const gfx::RectF& bounds,
-    const std::vector<base::string16>& values,
-    const std::vector<base::string16>& labels) {
-  if (!owner_window())
-    return;
-
-  auto* window = static_cast<NativeWindowViews*>(owner_window());
-  autofill_popup_->CreateView(frame_host, embedder_frame_host, offscreen,
-                              window->content_view(), bounds);
-  autofill_popup_->SetItems(values, labels);
-}
-
-void CommonWebContentsDelegate::HideAutofillPopup() {
-  if (autofill_popup_)
-    autofill_popup_->Hide();
+  return false;
 }
 
 gfx::ImageSkia CommonWebContentsDelegate::GetDevToolsWindowIcon() {

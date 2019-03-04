@@ -6,8 +6,10 @@
 #ifndef ATOM_BROWSER_NET_ATOM_URL_REQUEST_H_
 #define ATOM_BROWSER_NET_ATOM_URL_REQUEST_H_
 
+#include <memory>
 #include <string>
 #include <vector>
+
 #include "atom/browser/api/atom_api_url_request.h"
 #include "atom/browser/atom_browser_context.h"
 #include "base/memory/ref_counted.h"
@@ -43,6 +45,7 @@ class AtomURLRequest : public base::RefCountedThreadSafe<AtomURLRequest>,
   void PassLoginInformation(const base::string16& username,
                             const base::string16& password) const;
   void SetLoadFlags(int flags) const;
+  void GetUploadProgress(mate::Dictionary* progress) const;
 
  protected:
   // Overrides of net::URLRequest::Delegate

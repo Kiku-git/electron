@@ -3,6 +3,9 @@
 // found in the LICENSE file.
 
 #include "atom/browser/ui/views/autofill_popup_view.h"
+
+#include <memory>
+
 #include "base/bind.h"
 #include "base/i18n/rtl.h"
 #include "cc/paint/skia_paint_canvas.h"
@@ -41,7 +44,7 @@ AutofillPopupView::~AutofillPopupView() {
 
   RemoveObserver();
 
-#if defined(ENABLE_OSR)
+#if BUILDFLAG(ENABLE_OSR)
   if (view_proxy_.get()) {
     view_proxy_->ResetView();
   }
@@ -53,19 +56,12 @@ AutofillPopupView::~AutofillPopupView() {
 }
 
 void AutofillPopupView::Show() {
-  if (!popup_)
+  if (!popup_ || !parent_widget_->IsVisible() || parent_widget_->IsClosed())
     return;
 
   const bool initialize_widget = !GetWidget();
   if (initialize_widget) {
     parent_widget_->AddObserver(this);
-    views::FocusManager* focus_manager = parent_widget_->GetFocusManager();
-    focus_manager->RegisterAccelerator(
-        ui::Accelerator(ui::VKEY_RETURN, ui::EF_NONE),
-        ui::AcceleratorManager::kNormalPriority, this);
-    focus_manager->RegisterAccelerator(
-        ui::Accelerator(ui::VKEY_ESCAPE, ui::EF_NONE),
-        ui::AcceleratorManager::kNormalPriority, this);
 
     // The widget is destroyed by the corresponding NativeWidget, so we use
     // a weak pointer to hold the reference and don't have to worry about
@@ -198,7 +194,7 @@ void AutofillPopupView::DrawAutofillEntry(gfx::Canvas* canvas,
     canvas->DrawStringRectWithFlags(
         popup_->GetLabelAt(index), popup_->GetLabelFontListForRow(index),
         GetNativeTheme()->GetSystemColor(
-            ui::NativeTheme::kColorId_ResultsTableNormalDimmedText),
+            ui::NativeTheme::kColorId_ResultsTableDimmedText),
         gfx::Rect(label_x_align_left, entry_rect.y(), label_width,
                   entry_rect.height()),
         text_align);
@@ -223,7 +219,7 @@ void AutofillPopupView::DoUpdateBoundsAndRedrawPopup() {
     return;
 
   GetWidget()->SetBounds(popup_->popup_bounds_);
-#if defined(ENABLE_OSR)
+#if BUILDFLAG(ENABLE_OSR)
   if (view_proxy_.get()) {
     view_proxy_->SetBounds(popup_->popup_bounds_in_view());
   }
@@ -237,7 +233,7 @@ void AutofillPopupView::OnPaint(gfx::Canvas* canvas) {
   gfx::Canvas* draw_canvas = canvas;
   SkBitmap bitmap;
 
-#if defined(ENABLE_OSR)
+#if BUILDFLAG(ENABLE_OSR)
   std::unique_ptr<cc::SkiaPaintCanvas> paint_canvas;
   if (view_proxy_.get()) {
     bitmap.allocN32Pixels(popup_->popup_bounds_in_view().width(),
@@ -257,7 +253,7 @@ void AutofillPopupView::OnPaint(gfx::Canvas* canvas) {
     DrawAutofillEntry(draw_canvas, i, line_rect);
   }
 
-#if defined(ENABLE_OSR)
+#if BUILDFLAG(ENABLE_OSR)
   if (view_proxy_.get()) {
     view_proxy_->SetBounds(popup_->popup_bounds_in_view());
     view_proxy_->SetBitmap(bitmap);
@@ -484,7 +480,6 @@ void AutofillPopupView::ClearSelection() {
 }
 
 void AutofillPopupView::RemoveObserver() {
-  parent_widget_->GetFocusManager()->UnregisterAccelerators(this);
   parent_widget_->RemoveObserver(this);
   views::WidgetFocusManager::GetInstance()->RemoveFocusChangeListener(this);
 }

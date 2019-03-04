@@ -210,7 +210,7 @@ void Tray::PopUpContextMenu(mate::Arguments* args) {
 
 void Tray::SetContextMenu(v8::Isolate* isolate, mate::Handle<Menu> menu) {
   menu_.Reset(isolate, menu.ToV8());
-  tray_icon_->SetContextMenu(menu->model());
+  tray_icon_->SetContextMenu(menu.IsEmpty() ? nullptr : menu->model());
 }
 
 gfx::Rect Tray::GetBounds() {
@@ -254,7 +254,9 @@ void Initialize(v8::Local<v8::Object> exports,
   Tray::SetConstructor(isolate, base::Bind(&Tray::New));
 
   mate::Dictionary dict(isolate, exports);
-  dict.Set("Tray", Tray::GetConstructor(isolate)->GetFunction());
+  dict.Set(
+      "Tray",
+      Tray::GetConstructor(isolate)->GetFunction(context).ToLocalChecked());
 }
 
 }  // namespace

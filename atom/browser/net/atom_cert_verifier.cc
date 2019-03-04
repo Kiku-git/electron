@@ -4,15 +4,18 @@
 
 #include "atom/browser/net/atom_cert_verifier.h"
 
+#include <utility>
+
 #include "atom/browser/browser.h"
+#include "atom/browser/net/require_ct_delegate.h"
 #include "atom/common/native_mate_converters/net_converter.h"
 #include "base/containers/linked_list.h"
 #include "base/memory/weak_ptr.h"
-#include "brightray/browser/net/require_ct_delegate.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/net_errors.h"
 #include "net/cert/cert_verify_result.h"
-#include "net/cert/crl_set.h"
 #include "net/cert/x509_certificate.h"
 
 using content::BrowserThread;
@@ -28,14 +31,14 @@ namespace {
 class Response : public base::LinkNode<Response> {
  public:
   Response(net::CertVerifyResult* verify_result,
-           const net::CompletionCallback& callback)
-      : verify_result_(verify_result), callback_(callback) {}
+           net::CompletionOnceCallback callback)
+      : verify_result_(verify_result), callback_(std::move(callback)) {}
   net::CertVerifyResult* verify_result() { return verify_result_; }
-  net::CompletionCallback callback() { return callback_; }
+  net::CompletionOnceCallback callback() { return std::move(callback_); }
 
  private:
   net::CertVerifyResult* verify_result_;
-  net::CompletionCallback callback_;
+  net::CompletionOnceCallback callback_;
 
   DISALLOW_COPY_AND_ASSIGN(Response);
 };
@@ -76,9 +79,9 @@ class CertVerifierRequest : public AtomCertVerifier::Request {
     delete response;
   }
 
-  void Start(net::CRLSet* crl_set, const net::NetLogWithSource& net_log) {
+  void Start(const net::NetLogWithSource& net_log) {
     int error = cert_verifier_->default_verifier()->Verify(
-        params_, crl_set, &result_,
+        params_, &result_,
         base::Bind(&CertVerifierRequest::OnDefaultVerificationDone,
                    weak_ptr_factory_.GetWeakPtr()),
         &default_verifier_request_, net_log);
@@ -95,8 +98,8 @@ class CertVerifierRequest : public AtomCertVerifier::Request {
     request->certificate = params_.certificate();
     auto response_callback = base::Bind(&CertVerifierRequest::OnResponseInUI,
                                         weak_ptr_factory_.GetWeakPtr());
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&CertVerifierRequest::OnVerifyRequestInUI,
                        cert_verifier_->verify_proc(), std::move(request),
                        response_callback));
@@ -111,8 +114,8 @@ class CertVerifierRequest : public AtomCertVerifier::Request {
 
   static void OnResponseInUI(base::WeakPtr<CertVerifierRequest> self,
                              int result) {
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::IO},
         base::BindOnce(&CertVerifierRequest::NotifyResponseInIO, self, result));
   }
 
@@ -128,8 +131,8 @@ class CertVerifierRequest : public AtomCertVerifier::Request {
   }
 
   void AddResponseListener(net::CertVerifyResult* verify_result,
-                           const net::CompletionCallback& callback) {
-    response_list_.Append(new Response(verify_result, callback));
+                           net::CompletionOnceCallback callback) {
+    response_list_.Append(new Response(verify_result, std::move(callback)));
   }
 
   const AtomCertVerifier::RequestParams& params() const { return params_; }
@@ -148,7 +151,7 @@ class CertVerifierRequest : public AtomCertVerifier::Request {
   base::WeakPtrFactory<CertVerifierRequest> weak_ptr_factory_;
 };
 
-AtomCertVerifier::AtomCertVerifier(brightray::RequireCTDelegate* ct_delegate)
+AtomCertVerifier::AtomCertVerifier(RequireCTDelegate* ct_delegate)
     : default_cert_verifier_(net::CertVerifier::CreateDefault()),
       ct_delegate_(ct_delegate) {}
 
@@ -159,37 +162,34 @@ void AtomCertVerifier::SetVerifyProc(const VerifyProc& proc) {
 }
 
 int AtomCertVerifier::Verify(const RequestParams& params,
-                             net::CRLSet* crl_set,
                              net::CertVerifyResult* verify_result,
-                             const net::CompletionCallback& callback,
+                             net::CompletionOnceCallback callback,
                              std::unique_ptr<Request>* out_req,
                              const net::NetLogWithSource& net_log) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   if (verify_proc_.is_null()) {
     ct_delegate_->ClearCTExcludedHostsList();
-    return default_cert_verifier_->Verify(params, crl_set, verify_result,
-                                          callback, out_req, net_log);
+    return default_cert_verifier_->Verify(
+        params, verify_result, std::move(callback), out_req, net_log);
   } else {
     CertVerifierRequest* request = FindRequest(params);
     if (!request) {
       out_req->reset();
       auto new_request = std::make_unique<CertVerifierRequest>(params, this);
-      new_request->Start(crl_set, net_log);
+      new_request->Start(net_log);
       request = new_request.get();
       *out_req = std::move(new_request);
       inflight_requests_[params] = request;
     }
-    request->AddResponseListener(verify_result, callback);
+    request->AddResponseListener(verify_result, std::move(callback));
 
     return net::ERR_IO_PENDING;
   }
 }
 
-bool AtomCertVerifier::SupportsOCSPStapling() {
-  if (verify_proc_.is_null())
-    return default_cert_verifier_->SupportsOCSPStapling();
-  return false;
+void AtomCertVerifier::SetConfig(const Config& config) {
+  default_cert_verifier_->SetConfig(config);
 }
 
 void AtomCertVerifier::RemoveRequest(const RequestParams& params) {

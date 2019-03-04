@@ -9,11 +9,11 @@
 
 #include "atom/browser/native_window.h"
 #include "atom/browser/window_list.h"
+#include "atom/common/application_info.h"
 #include "atom/common/atom_version.h"
 #include "base/command_line.h"
 #include "base/environment.h"
 #include "base/process/launch.h"
-#include "brightray/common/application_info.h"
 
 #if defined(USE_X11)
 #include "chrome/browser/ui/libgtkui/gtk_util.h"
@@ -131,15 +131,55 @@ Browser::LoginItemSettings Browser::GetLoginItemSettings(
 }
 
 std::string Browser::GetExecutableFileVersion() const {
-  return brightray::GetApplicationVersion();
+  return GetApplicationVersion();
 }
 
 std::string Browser::GetExecutableFileProductName() const {
-  return brightray::GetApplicationName();
+  return GetApplicationName();
 }
 
 bool Browser::IsUnityRunning() {
   return unity::IsRunning();
+}
+
+void Browser::ShowAboutPanel() {
+  std::string app_name, version, copyright, icon_path, website;
+
+  GtkAboutDialog* dialog = GTK_ABOUT_DIALOG(gtk_about_dialog_new());
+
+  if (about_panel_options_.GetString("applicationName", &app_name))
+    gtk_about_dialog_set_program_name(dialog, app_name.c_str());
+  if (about_panel_options_.GetString("applicationVersion", &version))
+    gtk_about_dialog_set_version(dialog, version.c_str());
+  if (about_panel_options_.GetString("copyright", &copyright))
+    gtk_about_dialog_set_copyright(dialog, copyright.c_str());
+  if (about_panel_options_.GetString("website", &website))
+    gtk_about_dialog_set_website(dialog, website.c_str());
+  if (about_panel_options_.GetString("iconPath", &icon_path)) {
+    GError* error = nullptr;
+    GdkPixbuf* icon = gdk_pixbuf_new_from_file(icon_path.c_str(), &error);
+    if (error != nullptr) {
+      g_warning("%s", error->message);
+      g_clear_error(&error);
+    } else {
+      gtk_about_dialog_set_logo(dialog, icon);
+      g_clear_object(&icon);
+    }
+  }
+
+  gtk_dialog_run(GTK_DIALOG(dialog));
+  g_clear_object(&dialog);
+}
+
+void Browser::SetAboutPanelOptions(const base::DictionaryValue& options) {
+  about_panel_options_.Clear();
+
+  for (const auto& pair : options) {
+    const std::string& key = pair.first;
+    const auto& val = pair.second;
+    if (!key.empty() && val->is_string())
+      about_panel_options_.SetString(key, val->GetString());
+  }
 }
 
 }  // namespace atom

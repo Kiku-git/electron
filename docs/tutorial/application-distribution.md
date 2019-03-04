@@ -86,14 +86,6 @@ MyApp.app/Contents
 ├── MacOS/
 │   └── MyApp
 └── Frameworks/
-    ├── MyApp Helper EH.app
-    |   ├── Info.plist
-    |   └── MacOS/
-    |       └── MyApp Helper EH
-    ├── MyApp Helper NP.app
-    |   ├── Info.plist
-    |   └── MacOS/
-    |       └── MyApp Helper NP
     └── MyApp Helper.app
         ├── Info.plist
         └── MacOS/
@@ -116,8 +108,9 @@ packaging tools to do the work for you:
 ## Rebranding by Rebuilding Electron from Source
 
 It is also possible to rebrand Electron by changing the product name and
-building it from source. To do this you need to modify the `atom.gyp` file and
-have a clean rebuild.
+building it from source. To do this you need to set the build argument
+corresponding to the product name (`electron_product_name = "YourProductName"`)
+in the `args.gn` file and rebuild.
 
 ### Creating a Custom Electron Fork
 
@@ -141,7 +134,7 @@ we appreciate your help.
 2. Create a new S3 bucket and create the following empty directory structure:
 
     ```sh
-    - atom-shell/
+    - electron/
       - symbols/
       - dist/
     ```
@@ -150,7 +143,7 @@ we appreciate your help.
 
   * `ELECTRON_GITHUB_TOKEN` - a token that can create releases on GitHub
   * `ELECTRON_S3_ACCESS_KEY`, `ELECTRON_S3_BUCKET`, `ELECTRON_S3_SECRET_KEY` -
-    the place where you'll upload node.js headers as well as symbols
+    the place where you'll upload Node.js headers as well as symbols
   * `ELECTRON_RELEASE` - Set to `true` and the upload part will run, leave unset
     and `surf-build` will do CI-type checks, appropriate to run for every
     pull request.

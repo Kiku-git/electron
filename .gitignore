@@ -16,13 +16,6 @@
 *.vcxproj.user
 *.xcodeproj
 /.idea/
-/brightray/brightray.opensdf
-/brightray/brightray.sdf
-/brightray/brightray.sln
-/brightray/brightray.suo
-/brightray/brightray.v12.suo
-/brightray/brightray.vcxproj*
-/brightray/brightray.xcodeproj/
 /dist/
 /external_binaries/
 /out/
@@ -41,6 +34,7 @@
 /vendor/python_26/
 /vendor/native_mksnapshot
 /vendor/LICENSES.chromium.html
+/vendor/pyyaml
 node_modules/
 SHASUMS256.txt
 **/yarn.lock
@@ -50,3 +44,21 @@ compile_commands.json
 # npm package
 /npm/dist
 /npm/path.txt
+
+.npmrc
+
+# Generated API definitions
+electron-api.json
+electron.d.ts
+
+# Spec hash calculation
+spec/.hash
+
+# Eslint Cache
+.eslintcache
+
+# Generated native addon files
+/spec/fixtures/native-addon/echo/build/
+
+# If someone runs tsc this is where stuff will end up
+ts-gen

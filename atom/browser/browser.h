@@ -5,6 +5,7 @@
 #ifndef ATOM_BROWSER_BROWSER_H_
 #define ATOM_BROWSER_BROWSER_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -34,7 +35,6 @@ class Image;
 namespace atom {
 
 class AtomMenuModel;
-class LoginHandler;
 
 // This class is used for control application-wide operations.
 class Browser : public WindowListObserver {
@@ -171,7 +171,7 @@ class Browser : public WindowListObserver {
 
   // Hide/Show dock.
   void DockHide();
-  void DockShow();
+  v8::Local<v8::Promise> DockShow(v8::Isolate* isolate);
   bool DockIsVisible();
 
   // Set docks' menu.
@@ -180,9 +180,12 @@ class Browser : public WindowListObserver {
   // Set docks' icon.
   void DockSetIcon(const gfx::Image& image);
 
+#endif  // defined(OS_MACOSX)
+
+#if defined(OS_MACOSX) || defined(OS_LINUX)
   void ShowAboutPanel();
   void SetAboutPanelOptions(const base::DictionaryValue& options);
-#endif  // defined(OS_MACOSX)
+#endif
 
 #if defined(OS_WIN)
   struct UserTask {
@@ -234,10 +237,14 @@ class Browser : public WindowListObserver {
   void OnAccessibilitySupportChanged();
 
   // Request basic auth login.
-  void RequestLogin(LoginHandler* login_handler,
+  void RequestLogin(scoped_refptr<LoginHandler> login_handler,
                     std::unique_ptr<base::DictionaryValue> request_details);
 
   void PreMainMessageLoopRun();
+
+  // Stores the supplied |quit_closure|, to be run when the last Browser
+  // instance is destroyed.
+  void SetMainMessageLoopQuitClosure(base::OnceClosure quit_closure);
 
   void AddObserver(BrowserObserver* obs) { observers_.AddObserver(obs); }
 
@@ -246,7 +253,7 @@ class Browser : public WindowListObserver {
   bool is_shutting_down() const { return is_shutdown_; }
   bool is_quiting() const { return is_quiting_; }
   bool is_ready() const { return is_ready_; }
-  util::Promise* WhenReady(v8::Isolate* isolate);
+  const util::Promise& WhenReady(v8::Isolate* isolate);
 
  protected:
   // Returns the version of application bundle or executable file.
@@ -280,11 +287,14 @@ class Browser : public WindowListObserver {
   // The browser is being shutdown.
   bool is_shutdown_ = false;
 
+  // Null until/unless the default main message loop is running.
+  base::OnceClosure quit_main_message_loop_;
+
   int badge_count_ = 0;
 
-  util::Promise* ready_promise_ = nullptr;
+  std::unique_ptr<util::Promise> ready_promise_;
 
-#if defined(OS_MACOSX)
+#if defined(OS_LINUX) || defined(OS_MACOSX)
   base::DictionaryValue about_panel_options_;
 #endif
 

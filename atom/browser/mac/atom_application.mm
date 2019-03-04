@@ -8,8 +8,11 @@
 #import "atom/browser/mac/atom_application_delegate.h"
 #include "atom/browser/mac/dict_util.h"
 #include "base/auto_reset.h"
+#include "base/observer_list.h"
 #include "base/strings/sys_string_conversions.h"
 #include "content/public/browser/browser_accessibility_state.h"
+#include "content/public/browser/native_event_processor_mac.h"
+#include "content/public/browser/native_event_processor_observer_mac.h"
 
 namespace {
 
@@ -21,6 +24,12 @@ inline void dispatch_sync_main(dispatch_block_t block) {
 }
 
 }  // namespace
+
+@interface AtomApplication () <NativeEventProcessor> {
+  base::ObserverList<content::NativeEventProcessorObserver>::Unchecked
+      observers_;
+}
+@end
 
 @implementation AtomApplication
 
@@ -48,6 +57,8 @@ inline void dispatch_sync_main(dispatch_block_t block) {
 
 - (void)sendEvent:(NSEvent*)event {
   base::AutoReset<BOOL> scoper(&handlingSendEvent_, YES);
+  content::ScopedNotifyNativeEventProcessorObserver scopedObserverNotifier(
+      &observers_, event);
   [super sendEvent:event];
 }
 
@@ -58,15 +69,13 @@ inline void dispatch_sync_main(dispatch_block_t block) {
 - (void)setCurrentActivity:(NSString*)type
               withUserInfo:(NSDictionary*)userInfo
             withWebpageURL:(NSURL*)webpageURL {
-  if (@available(macOS 10.10, *)) {
-    currentActivity_ = base::scoped_nsobject<NSUserActivity>(
-        [[NSUserActivity alloc] initWithActivityType:type]);
-    [currentActivity_ setUserInfo:userInfo];
-    [currentActivity_ setWebpageURL:webpageURL];
-    [currentActivity_ setDelegate:self];
-    [currentActivity_ becomeCurrent];
-    [currentActivity_ setNeedsSave:YES];
-  }
+  currentActivity_ = base::scoped_nsobject<NSUserActivity>(
+      [[NSUserActivity alloc] initWithActivityType:type]);
+  [currentActivity_ setUserInfo:userInfo];
+  [currentActivity_ setWebpageURL:webpageURL];
+  [currentActivity_ setDelegate:self];
+  [currentActivity_ becomeCurrent];
+  [currentActivity_ setNeedsSave:YES];
 }
 
 - (NSUserActivity*)getCurrentActivity {
@@ -92,8 +101,7 @@ inline void dispatch_sync_main(dispatch_block_t block) {
   [handoffLock_ unlock];
 }
 
-- (void)userActivityWillSave:(NSUserActivity*)userActivity
-    API_AVAILABLE(macosx(10.10)) {
+- (void)userActivityWillSave:(NSUserActivity*)userActivity {
   __block BOOL shouldWait = NO;
   dispatch_sync_main(^{
     std::string activity_type(
@@ -121,8 +129,7 @@ inline void dispatch_sync_main(dispatch_block_t block) {
   [userActivity setNeedsSave:YES];
 }
 
-- (void)userActivityWasContinued:(NSUserActivity*)userActivity
-    API_AVAILABLE(macosx(10.10)) {
+- (void)userActivityWasContinued:(NSUserActivity*)userActivity {
   dispatch_async(dispatch_get_main_queue(), ^{
     std::string activity_type(
         base::SysNSStringToUTF8(userActivity.activityType));
@@ -186,6 +193,16 @@ inline void dispatch_sync_main(dispatch_block_t block) {
 
 - (void)orderFrontStandardAboutPanel:(id)sender {
   atom::Browser::Get()->ShowAboutPanel();
+}
+
+- (void)addNativeEventProcessorObserver:
+    (content::NativeEventProcessorObserver*)observer {
+  observers_.AddObserver(observer);
+}
+
+- (void)removeNativeEventProcessorObserver:
+    (content::NativeEventProcessorObserver*)observer {
+  observers_.RemoveObserver(observer);
 }
 
 @end

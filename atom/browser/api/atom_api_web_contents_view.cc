@@ -5,8 +5,9 @@
 #include "atom/browser/api/atom_api_web_contents_view.h"
 
 #include "atom/browser/api/atom_api_web_contents.h"
+#include "atom/browser/browser.h"
+#include "atom/browser/ui/inspectable_web_contents_view.h"
 #include "atom/common/api/constructor.h"
-#include "brightray/browser/inspectable_web_contents_view.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "native_mate/dictionary.h"
 
@@ -30,12 +31,14 @@ class WebContentsViewRelay
 
   atom::api::WebContentsView* view_ = nullptr;
 
+  WEB_CONTENTS_USER_DATA_KEY_DECL();
+
   DISALLOW_COPY_AND_ASSIGN(WebContentsViewRelay);
 };
 
-}  // namespace
+WEB_CONTENTS_USER_DATA_KEY_IMPL(WebContentsViewRelay)
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(WebContentsViewRelay);
+}  // namespace
 
 namespace atom {
 
@@ -43,7 +46,7 @@ namespace api {
 
 WebContentsView::WebContentsView(v8::Isolate* isolate,
                                  mate::Handle<WebContents> web_contents,
-                                 brightray::InspectableWebContents* iwc)
+                                 InspectableWebContents* iwc)
 #if defined(OS_MACOSX)
     : View(new DelayedNativeViewHost(iwc->GetView()->GetNativeView())),
 #else
@@ -64,8 +67,11 @@ WebContentsView::WebContentsView(v8::Isolate* isolate,
 }
 
 WebContentsView::~WebContentsView() {
-  if (api_web_contents_)
-    api_web_contents_->DestroyWebContents(false /* async */);
+  if (api_web_contents_) {  // destroy() is called
+    // Destroy WebContents asynchronously unless app is shutting down,
+    // because destroy() might be called inside WebContents's event handler.
+    api_web_contents_->DestroyWebContents(!Browser::Get()->is_shutting_down());
+  }
 }
 
 void WebContentsView::WebContentsDestroyed() {

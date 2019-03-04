@@ -2,9 +2,9 @@ const assert = require('assert')
 const http = require('http')
 const path = require('path')
 const qs = require('querystring')
-const {closeWindow} = require('./window-helpers')
-const {remote} = require('electron')
-const {BrowserWindow, ipcMain, protocol, session, webContents} = remote
+const { closeWindow } = require('./window-helpers')
+const { remote } = require('electron')
+const { BrowserWindow, ipcMain, protocol, session, webContents } = remote
 // The RPC API doesn't seem to support calling methods on remote objects very
 // well. In order to test stream protocol, we must work around this limitation
 // and use Stream instances created in the browser process.
@@ -59,9 +59,9 @@ describe('protocol module', () => {
 
     it('throws error when scheme is already registered', (done) => {
       protocol.registerStringProtocol(protocolName, emptyHandler, (error) => {
-        assert.equal(error, null)
+        assert.strictEqual(error, null)
         protocol.registerBufferProtocol(protocolName, emptyHandler, (error) => {
-          assert.notEqual(error, null)
+          assert.notStrictEqual(error, null)
           done()
         })
       })
@@ -83,7 +83,7 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, text)
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -99,7 +99,7 @@ describe('protocol module', () => {
           cache: false,
           success: () => done('request succeeded but it should not'),
           error: (xhr, errorType) => {
-            assert.equal(errorType, 'error')
+            assert.strictEqual(errorType, 'error')
             return done()
           }
         })
@@ -116,7 +116,7 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, text)
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -128,7 +128,7 @@ describe('protocol module', () => {
   describe('protocol.unregisterProtocol', () => {
     it('returns error when scheme does not exist', (done) => {
       protocol.unregisterProtocol('not-exist', (error) => {
-        assert.notEqual(error, null)
+        assert.notStrictEqual(error, null)
         done()
       })
     })
@@ -143,7 +143,7 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, text)
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -159,8 +159,8 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data, status, request) => {
-            assert.equal(data, text)
-            assert.equal(request.getResponseHeader('Access-Control-Allow-Origin'), '*')
+            assert.strictEqual(data, text)
+            assert.strictEqual(request.getResponseHeader('Access-Control-Allow-Origin'), '*')
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -181,7 +181,7 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, text)
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -198,7 +198,7 @@ describe('protocol module', () => {
           cache: false,
           success: () => done('request succeeded but it should not'),
           error: (xhr, errorType) => {
-            assert.equal(errorType, 'error')
+            assert.strictEqual(errorType, 'error')
             done()
           }
         })
@@ -216,7 +216,7 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, text)
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -232,8 +232,8 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data, status, request) => {
-            assert.equal(data, text)
-            assert.equal(request.getResponseHeader('Access-Control-Allow-Origin'), '*')
+            assert.strictEqual(data, text)
+            assert.strictEqual(request.getResponseHeader('Access-Control-Allow-Origin'), '*')
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -254,7 +254,7 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, text)
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -271,7 +271,7 @@ describe('protocol module', () => {
           cache: false,
           success: () => done('request succeeded but it should not'),
           error: (xhr, errorType) => {
-            assert.equal(errorType, 'error')
+            assert.strictEqual(errorType, 'error')
             done()
           }
         })
@@ -293,7 +293,7 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, String(fileContent))
+            assert.strictEqual(data, String(fileContent))
             return done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -309,8 +309,30 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data, status, request) => {
-            assert.equal(data, String(fileContent))
-            assert.equal(request.getResponseHeader('Access-Control-Allow-Origin'), '*')
+            assert.strictEqual(data, String(fileContent))
+            assert.strictEqual(request.getResponseHeader('Access-Control-Allow-Origin'), '*')
+            done()
+          },
+          error: (xhr, errorType, error) => {
+            done(error)
+          }
+        })
+      })
+    })
+
+    it('sets custom headers', (done) => {
+      const handler = (request, callback) => callback({
+        path: filePath,
+        headers: { 'X-Great-Header': 'sogreat' }
+      })
+      protocol.registerFileProtocol(protocolName, handler, (error) => {
+        if (error) return done(error)
+        $.ajax({
+          url: protocolName + '://fake-host',
+          cache: false,
+          success: (data, status, request) => {
+            assert.strictEqual(data, String(fileContent))
+            assert.strictEqual(request.getResponseHeader('X-Great-Header'), 'sogreat')
             done()
           },
           error: (xhr, errorType, error) => {
@@ -328,7 +350,7 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, String(fileContent))
+            assert.strictEqual(data, String(fileContent))
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -344,7 +366,7 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, String(normalContent))
+            assert.strictEqual(data, String(normalContent))
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -362,7 +384,7 @@ describe('protocol module', () => {
           cache: false,
           success: () => done('request succeeded but it should not'),
           error: (xhr, errorType) => {
-            assert.equal(errorType, 'error')
+            assert.strictEqual(errorType, 'error')
             done()
           }
         })
@@ -378,7 +400,7 @@ describe('protocol module', () => {
           cache: false,
           success: () => done('request succeeded but it should not'),
           error: (xhr, errorType) => {
-            assert.equal(errorType, 'error')
+            assert.strictEqual(errorType, 'error')
             done()
           }
         })
@@ -389,21 +411,21 @@ describe('protocol module', () => {
   describe('protocol.registerHttpProtocol', () => {
     it('sends url as response', (done) => {
       const server = http.createServer((req, res) => {
-        assert.notEqual(req.headers.accept, '')
+        assert.notStrictEqual(req.headers.accept, '')
         res.end(text)
         server.close()
       })
       server.listen(0, '127.0.0.1', () => {
         const port = server.address().port
         const url = 'http://127.0.0.1:' + port
-        const handler = (request, callback) => callback({url})
+        const handler = (request, callback) => callback({ url })
         protocol.registerHttpProtocol(protocolName, handler, (error) => {
           if (error) return done(error)
           $.ajax({
             url: protocolName + '://fake-host',
             cache: false,
             success: (data) => {
-              assert.equal(data, text)
+              assert.strictEqual(data, text)
               done()
             },
             error: (xhr, errorType, error) => done(error)
@@ -413,7 +435,7 @@ describe('protocol module', () => {
     })
 
     it('fails when sending invalid url', (done) => {
-      const handler = (request, callback) => callback({url: 'url'})
+      const handler = (request, callback) => callback({ url: 'url' })
       protocol.registerHttpProtocol(protocolName, handler, (error) => {
         if (error) return done(error)
         $.ajax({
@@ -421,7 +443,7 @@ describe('protocol module', () => {
           cache: false,
           success: () => done('request succeeded but it should not'),
           error: (xhr, errorType) => {
-            assert.equal(errorType, 'error')
+            assert.strictEqual(errorType, 'error')
             done()
           }
         })
@@ -439,7 +461,7 @@ describe('protocol module', () => {
             done('request succeeded but it should not')
           },
           error: (xhr, errorType) => {
-            assert.equal(errorType, 'error')
+            assert.strictEqual(errorType, 'error')
             done()
           }
         })
@@ -461,17 +483,30 @@ describe('protocol module', () => {
         const port = server.address().port
         const url = `${protocolName}://fake-host`
         const redirectURL = `http://127.0.0.1:${port}/serverRedirect`
-        const handler = (request, callback) => callback({url: redirectURL})
+        const handler = (request, callback) => callback({ url: redirectURL })
         protocol.registerHttpProtocol(protocolName, handler, (error) => {
           if (error) return done(error)
           contents = webContents.create({})
           contents.on('did-finish-load', () => {
-            assert.equal(contents.getURL(), url)
+            assert.strictEqual(contents.getURL(), url)
             server.close()
             contents.destroy()
             done()
           })
           contents.loadURL(url)
+        })
+      })
+    })
+
+    it('can access request headers', (done) => {
+      const handler = (request) => {
+        assert.ok('headers' in request)
+        done()
+      }
+      protocol.registerHttpProtocol(protocolName, handler, () => {
+        $.ajax({
+          url: protocolName + '://fake-host',
+          cache: false
         })
       })
     })
@@ -486,7 +521,7 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, text)
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => {
@@ -497,15 +532,15 @@ describe('protocol module', () => {
     })
 
     it('sends object as response', (done) => {
-      const handler = (request, callback) => callback({data: getStream()})
+      const handler = (request, callback) => callback({ data: getStream() })
       protocol.registerStreamProtocol(protocolName, handler, (error) => {
         if (error) return done(error)
         $.ajax({
           url: protocolName + '://fake-host',
           cache: false,
           success: (data, _, request) => {
-            assert.equal(request.status, 200)
-            assert.equal(data, text)
+            assert.strictEqual(request.status, 200)
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => {
@@ -528,9 +563,9 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data, _, request) => {
-            assert.equal(request.status, 200)
-            assert.equal(request.getResponseHeader('x-electron'), 'a,b')
-            assert.equal(data, text)
+            assert.strictEqual(request.status, 200)
+            assert.strictEqual(request.getResponseHeader('x-electron'), 'a, b')
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => {
@@ -551,8 +586,8 @@ describe('protocol module', () => {
           url: protocolName + '://fake-host',
           cache: false,
           success: (data, _, request) => {
-            assert.equal(request.status, 204)
-            assert.equal(data, undefined)
+            assert.strictEqual(request.status, 204)
+            assert.strictEqual(data, undefined)
             done()
           },
           error: (xhr, errorType, error) => {
@@ -580,7 +615,7 @@ describe('protocol module', () => {
           },
           cache: false,
           success: (data) => {
-            assert.equal(data['x-return-headers'], 'yes')
+            assert.strictEqual(data['x-return-headers'], 'yes')
             done()
           },
           error: (xhr, errorType, error) => {
@@ -589,50 +624,121 @@ describe('protocol module', () => {
         })
       })
     })
+
+    it('returns response multiple response headers with the same name', (done) => {
+      const handler = (request, callback) => {
+        callback({
+          headers: {
+            'header1': ['value1', 'value2'],
+            'header2': 'value3'
+          },
+          data: getStream()
+        })
+      }
+
+      protocol.registerStreamProtocol(protocolName, handler, (error) => {
+        if (error) return done(error)
+        $.ajax({
+          url: protocolName + '://fake-host',
+          cache: false,
+          success: (data, status, request) => {
+            // SUBTLE: when the response headers have multiple values it
+            // separates values by ", ". When the response headers are incorrectly
+            // converting an array to a string it separates values by ",".
+            assert.strictEqual(request.getAllResponseHeaders(), 'header1: value1, value2\r\nheader2: value3\r\n')
+            done()
+          },
+          error: (xhr, errorType, error) => {
+            done(error || new Error(`Request failed: ${xhr.status}`))
+          }
+        })
+      })
+    })
+
+    it('can handle large responses', async () => {
+      const data = Buffer.alloc(128 * 1024)
+      const handler = (request, callback) => {
+        callback(getStream(data.length, data))
+      }
+      await new Promise((resolve, reject) => {
+        protocol.registerStreamProtocol(protocolName, handler, err => {
+          if (err) return reject(err)
+          resolve()
+        })
+      })
+      const r = await new Promise((resolve, reject) => {
+        $.ajax({
+          url: protocolName + '://fake-host',
+          cache: false,
+          success: resolve,
+          error: (xhr, errorType, error) => {
+            reject(error || new Error(`Request failed: ${xhr.status}`))
+          }
+        })
+      })
+      assert.strictEqual(r.length, data.length)
+    })
   })
 
   describe('protocol.isProtocolHandled', () => {
-    it('returns true for about:', (done) => {
+    it('returns true for about:', async () => {
+      const result = await protocol.isProtocolHandled('about')
+      assert.strictEqual(result, true)
+    })
+
+    // TODO(codebytere): remove when promisification is complete
+    it('returns true for about: (callback)', (done) => {
       protocol.isProtocolHandled('about', (result) => {
-        assert.equal(result, true)
+        assert.strictEqual(result, true)
         done()
       })
     })
 
-    it('returns true for file:', (done) => {
+    it('returns true for file:', async () => {
+      const result = await protocol.isProtocolHandled('file')
+      assert.strictEqual(result, true)
+    })
+
+    // TODO(codebytere): remove when promisification is complete
+    it('returns true for file: (callback)', (done) => {
       protocol.isProtocolHandled('file', (result) => {
-        assert.equal(result, true)
+        assert.strictEqual(result, true)
         done()
       })
     })
 
-    it('returns true for http:', (done) => {
-      protocol.isProtocolHandled('http', (result) => {
-        assert.equal(result, true)
-        done()
-      })
+    it('returns true for http:', async () => {
+      const result = await protocol.isProtocolHandled('http')
+      assert.strictEqual(result, true)
     })
 
-    it('returns true for https:', (done) => {
-      protocol.isProtocolHandled('https', (result) => {
-        assert.equal(result, true)
-        done()
-      })
+    it('returns true for https:', async () => {
+      const result = await protocol.isProtocolHandled('https')
+      assert.strictEqual(result, true)
     })
 
-    it('returns false when scheme is not registered', (done) => {
-      protocol.isProtocolHandled('no-exist', (result) => {
-        assert.equal(result, false)
-        done()
-      })
+    it('returns false when scheme is not registered', async () => {
+      const result = await protocol.isProtocolHandled('no-exist')
+      assert.strictEqual(result, false)
     })
 
     it('returns true for custom protocol', (done) => {
       const emptyHandler = (request, callback) => callback()
+      protocol.registerStringProtocol(protocolName, emptyHandler, async (error) => {
+        assert.strictEqual(error, null)
+        const result = await protocol.isProtocolHandled(protocolName)
+        assert.strictEqual(result, true)
+        done()
+      })
+    })
+
+    // TODO(codebytere): remove when promisification is complete
+    it('returns true for custom protocol (callback)', (done) => {
+      const emptyHandler = (request, callback) => callback()
       protocol.registerStringProtocol(protocolName, emptyHandler, (error) => {
-        assert.equal(error, null)
+        assert.strictEqual(error, null)
         protocol.isProtocolHandled(protocolName, (result) => {
-          assert.equal(result, true)
+          assert.strictEqual(result, true)
           done()
         })
       })
@@ -640,10 +746,21 @@ describe('protocol module', () => {
 
     it('returns true for intercepted protocol', (done) => {
       const emptyHandler = (request, callback) => callback()
+      protocol.interceptStringProtocol('http', emptyHandler, async (error) => {
+        assert.strictEqual(error, null)
+        const result = await protocol.isProtocolHandled('http')
+        assert.strictEqual(result, true)
+        done()
+      })
+    })
+
+    // TODO(codebytere): remove when promisification is complete
+    it('returns true for intercepted protocol (callback)', (done) => {
+      const emptyHandler = (request, callback) => callback()
       protocol.interceptStringProtocol('http', emptyHandler, (error) => {
-        assert.equal(error, null)
+        assert.strictEqual(error, null)
         protocol.isProtocolHandled('http', (result) => {
-          assert.equal(result, true)
+          assert.strictEqual(result, true)
           done()
         })
       })
@@ -654,16 +771,16 @@ describe('protocol module', () => {
     const emptyHandler = (request, callback) => callback()
     it('throws error when scheme is already intercepted', (done) => {
       protocol.interceptStringProtocol('http', emptyHandler, (error) => {
-        assert.equal(error, null)
+        assert.strictEqual(error, null)
         protocol.interceptBufferProtocol('http', emptyHandler, (error) => {
-          assert.notEqual(error, null)
+          assert.notStrictEqual(error, null)
           done()
         })
       })
     })
 
     it('does not crash when handler is called twice', (done) => {
-      var doubleHandler = (request, callback) => {
+      const doubleHandler = (request, callback) => {
         try {
           callback(text)
           callback()
@@ -677,7 +794,7 @@ describe('protocol module', () => {
           url: 'http://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, text)
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -693,7 +810,7 @@ describe('protocol module', () => {
           cache: false,
           success: () => done('request succeeded but it should not'),
           error: (xhr, errorType) => {
-            assert.equal(errorType, 'error')
+            assert.strictEqual(errorType, 'error')
             done()
           }
         })
@@ -710,7 +827,7 @@ describe('protocol module', () => {
           url: 'http://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, text)
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -731,8 +848,8 @@ describe('protocol module', () => {
           url: 'http://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(typeof data, 'object')
-            assert.equal(data.value, 1)
+            assert.strictEqual(typeof data, 'object')
+            assert.strictEqual(data.value, 1)
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -743,7 +860,7 @@ describe('protocol module', () => {
     it('can receive post data', (done) => {
       const handler = (request, callback) => {
         const uploadData = request.uploadData[0].bytes.toString()
-        callback({data: uploadData})
+        callback({ data: uploadData })
       }
       protocol.interceptStringProtocol('http', handler, (error) => {
         if (error) return done(error)
@@ -753,7 +870,7 @@ describe('protocol module', () => {
           type: 'POST',
           data: postData,
           success: (data) => {
-            assert.deepEqual(qs.parse(data), postData)
+            assert.deepStrictEqual({ ...qs.parse(data) }, postData)
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -771,7 +888,7 @@ describe('protocol module', () => {
           url: 'http://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, text)
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -792,7 +909,7 @@ describe('protocol module', () => {
           type: 'POST',
           data: postData,
           success: (data) => {
-            assert.equal(data, $.param(postData))
+            assert.strictEqual(data, $.param(postData))
             done()
           },
           error: (xhr, errorType, error) => done(error)
@@ -836,7 +953,7 @@ describe('protocol module', () => {
             type: 'POST',
             data: postData,
             success: (data) => {
-              assert.deepEqual(qs.parse(data), postData)
+              assert.deepStrictEqual({ ...qs.parse(data) }, postData)
               done()
             },
             error: (xhr, errorType, error) => done(error)
@@ -846,10 +963,10 @@ describe('protocol module', () => {
     })
 
     it('can use custom session', (done) => {
-      const customSession = session.fromPartition('custom-ses', {cache: false})
+      const customSession = session.fromPartition('custom-ses', { cache: false })
       customSession.webRequest.onBeforeRequest((details, callback) => {
-        assert.equal(details.url, 'http://fake-host/')
-        callback({cancel: true})
+        assert.strictEqual(details.url, 'http://fake-host/')
+        callback({ cancel: true })
       })
       const handler = (request, callback) => {
         callback({
@@ -867,6 +984,16 @@ describe('protocol module', () => {
         })
       })
     })
+
+    it('can access request headers', (done) => {
+      const handler = (request) => {
+        assert.ok('headers' in request)
+        done()
+      }
+      protocol.interceptHttpProtocol('http', handler, () => {
+        fetch('http://fake-host')
+      })
+    })
   })
 
   describe('protocol.interceptStreamProtocol', () => {
@@ -878,7 +1005,7 @@ describe('protocol module', () => {
           url: 'http://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, text)
+            assert.strictEqual(data, text)
             done()
           },
           error: (xhr, errorType, error) => {
@@ -900,7 +1027,7 @@ describe('protocol module', () => {
           type: 'POST',
           data: postData,
           success: (data) => {
-            assert.deepEqual(qs.parse(data), postData)
+            assert.deepStrictEqual({ ...qs.parse(data) }, postData)
             done()
           },
           error: (xhr, errorType, error) => {
@@ -923,7 +1050,7 @@ describe('protocol module', () => {
             })
           }, 300)
         } else {
-          assert.equal(request.url.indexOf('http://fake-redirect'), 0)
+          assert.strictEqual(request.url.indexOf('http://fake-redirect'), 0)
           callback(getStream(1, 'redirect'))
         }
       }
@@ -933,7 +1060,7 @@ describe('protocol module', () => {
           url: 'http://fake-host',
           cache: false,
           success: (data) => {
-            assert.equal(data, 'redirect')
+            assert.strictEqual(data, 'redirect')
             done()
           },
           error: (xhr, errorType, error) => {
@@ -947,20 +1074,20 @@ describe('protocol module', () => {
   describe('protocol.uninterceptProtocol', () => {
     it('returns error when scheme does not exist', (done) => {
       protocol.uninterceptProtocol('not-exist', (error) => {
-        assert.notEqual(error, null)
+        assert.notStrictEqual(error, null)
         done()
       })
     })
 
     it('returns error when scheme is not intercepted', (done) => {
       protocol.uninterceptProtocol('http', (error) => {
-        assert.notEqual(error, null)
+        assert.notStrictEqual(error, null)
         done()
       })
     })
   })
 
-  describe('protocol.registerStandardSchemes', () => {
+  describe('protocol.registerSchemesAsPrivileged standard', () => {
     const standardScheme = remote.getGlobal('standardScheme')
     const origin = `${standardScheme}://fake-host`
     const imageURL = `${origin}/test.png`
@@ -970,7 +1097,12 @@ describe('protocol module', () => {
     let success = null
 
     beforeEach(() => {
-      w = new BrowserWindow({show: false})
+      w = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          nodeIntegration: true
+        }
+      })
       success = false
     })
 
@@ -1026,7 +1158,7 @@ describe('protocol module', () => {
 
     it('can have fetch working in it', (done) => {
       const content = '<html><script>fetch("http://github.com")</script></html>'
-      const handler = (request, callback) => callback({data: content, mimeType: 'text/html'})
+      const handler = (request, callback) => callback({ data: content, mimeType: 'text/html' })
       protocol.registerStringProtocol(standardScheme, handler, (error) => {
         if (error) return done(error)
         w.webContents.on('crashed', () => done('WebContents crashed'))
@@ -1036,8 +1168,8 @@ describe('protocol module', () => {
     })
 
     it('can access files through the FileSystem API', (done) => {
-      let filePath = path.join(__dirname, 'fixtures', 'pages', 'filesystem.html')
-      const handler = (request, callback) => callback({path: filePath})
+      const filePath = path.join(__dirname, 'fixtures', 'pages', 'filesystem.html')
+      const handler = (request, callback) => callback({ path: filePath })
       protocol.registerFileProtocol(standardScheme, handler, (error) => {
         if (error) return done(error)
         w.loadURL(origin)
@@ -1047,8 +1179,8 @@ describe('protocol module', () => {
     })
 
     it('registers secure, when {secure: true}', (done) => {
-      let filePath = path.join(__dirname, 'fixtures', 'pages', 'cache-storage.html')
-      const handler = (request, callback) => callback({path: filePath})
+      const filePath = path.join(__dirname, 'fixtures', 'pages', 'cache-storage.html')
+      const handler = (request, callback) => callback({ path: filePath })
       ipcMain.once('success', () => done())
       ipcMain.once('failure', (event, err) => done(err))
       protocol.registerFileProtocol(standardScheme, handler, (error) => {
@@ -1056,5 +1188,103 @@ describe('protocol module', () => {
         w.loadURL(origin)
       })
     })
+  })
+
+  describe('protocol.registerSchemesAsPrivileged cors-fetch', function () {
+    const standardScheme = remote.getGlobal('standardScheme')
+    const fixtures = path.resolve(__dirname, 'fixtures')
+    let w = null
+
+    beforeEach((done) => {
+      protocol.unregisterProtocol(standardScheme, () => done())
+    })
+
+    afterEach((done) => {
+      closeWindow(w).then(() => {
+        w = null
+        done()
+      })
+    })
+
+    it('supports fetch api by default', (done) => {
+      const url = 'file://' + fixtures + '/assets/logo.png'
+      window.fetch(url)
+        .then(function (response) {
+          assert(response.ok)
+          done()
+        })
+        .catch(function (err) {
+          done('unexpected error : ' + err)
+        })
+    })
+
+    it('allows CORS requests by default', (done) => {
+      allowsCORSRequests('cors', 200, `<html>
+        <script>
+        const {ipcRenderer} = require('electron')
+        fetch('cors://myhost').then(function (response) {
+          ipcRenderer.send('response', response.status)
+        }).catch(function (response) {
+          ipcRenderer.send('response', 'failed')
+        })
+        </script>
+        </html>`, done)
+    })
+
+    it('disallows CORS, but allows fetch requests, when specified', (done) => {
+      allowsCORSRequests('no-cors', 'failed', `<html>
+        <script>
+        const {ipcRenderer} = require('electron')
+        fetch('no-cors://myhost').then(function (response) {
+          ipcRenderer.send('response', response.status)
+        }).catch(function (response) {
+          ipcRenderer.send('response', 'failed')
+        })
+        </script>
+        </html>`, done)
+    })
+
+    it('allows CORS, but disallows fetch requests, when specified', (done) => {
+      allowsCORSRequests('no-fetch', 'failed', `<html>
+        <script>
+        const {ipcRenderer} = require('electron')
+        fetch('no-fetch://myhost').then(function
+        (response) {
+          ipcRenderer.send('response', response.status)
+        }).catch(function (response) {
+          ipcRenderer.send('response', 'failed')
+        })
+        </script>
+        </html>`, done)
+    })
+
+    function allowsCORSRequests (corsScheme, expected, content, done) {
+      const url = standardScheme + '://fake-host'
+      w = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          nodeIntegration: true
+        }
+      })
+
+      const handler = (request, callback) => {
+        callback({ data: content, mimeType: 'text/html' })
+      }
+      protocol.registerStringProtocol(standardScheme, handler, (error) => {
+        if (error) { return done(error) }
+      })
+
+      protocol.registerStringProtocol(corsScheme,
+        (request, callback) => {
+          callback('')
+        }, (error) => {
+          if (error) { return done(error) }
+          ipcMain.once('response', function (event, status) {
+            assert.strictEqual(status, expected)
+            protocol.unregisterProtocol(corsScheme, () => done())
+          })
+          w.loadURL(url)
+        })
+    }
   })
 })

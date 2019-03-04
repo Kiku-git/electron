@@ -5,35 +5,42 @@
 #ifndef ATOM_BROWSER_NET_URL_REQUEST_FETCH_JOB_H_
 #define ATOM_BROWSER_NET_URL_REQUEST_FETCH_JOB_H_
 
+#include <memory>
 #include <string>
 
 #include "atom/browser/net/js_asker.h"
-#include "brightray/browser/url_request_context_getter.h"
-#include "content/browser/streams/stream.h"
-#include "content/browser/streams/stream_read_observer.h"
+#include "base/memory/weak_ptr.h"
 #include "net/url_request/url_fetcher_delegate.h"
+#include "net/url_request/url_request_context_getter.h"
+#include "net/url_request/url_request_job.h"
 
 namespace atom {
 
-class URLRequestFetchJob : public JsAsker<net::URLRequestJob>,
-                           public net::URLFetcherDelegate,
-                           public brightray::URLRequestContextGetter::Delegate {
+class AtomBrowserContext;
+
+class URLRequestFetchJob : public JsAsker,
+                           public net::URLRequestJob,
+                           public net::URLFetcherDelegate {
  public:
   URLRequestFetchJob(net::URLRequest*, net::NetworkDelegate*);
   ~URLRequestFetchJob() override;
+
+  void StartAsync(
+      scoped_refptr<net::URLRequestContextGetter> request_context_getter,
+      scoped_refptr<AtomBrowserContext> browser_context,
+      std::unique_ptr<base::Value> options,
+      int error);
+  void OnError(int error);
 
   // Called by response writer.
   void HeadersCompleted();
   int DataAvailable(net::IOBuffer* buffer,
                     int num_bytes,
-                    const net::CompletionCallback& callback);
+                    net::CompletionOnceCallback callback);
 
  protected:
-  // JsAsker:
-  void BeforeStartInUI(v8::Isolate*, v8::Local<v8::Value>) override;
-  void StartAsync(std::unique_ptr<base::Value> options) override;
-
   // net::URLRequestJob:
+  void Start() override;
   void Kill() override;
   int ReadRawData(net::IOBuffer* buf, int buf_size) override;
   bool GetMimeType(std::string* mime_type) const override;
@@ -51,7 +58,7 @@ class URLRequestFetchJob : public JsAsker<net::URLRequestJob>,
   void ClearPendingBuffer();
   void ClearWriteBuffer();
 
-  scoped_refptr<net::URLRequestContextGetter> url_request_context_getter_;
+  scoped_refptr<AtomBrowserContext> custom_browser_context_;
   std::unique_ptr<net::URLFetcher> fetcher_;
   std::unique_ptr<net::HttpResponseInfo> response_info_;
 
@@ -62,7 +69,9 @@ class URLRequestFetchJob : public JsAsker<net::URLRequestJob>,
   // Saved arguments passed to DataAvailable.
   scoped_refptr<net::IOBuffer> write_buffer_;
   int write_num_bytes_ = 0;
-  net::CompletionCallback write_callback_;
+  net::CompletionOnceCallback write_callback_;
+
+  base::WeakPtrFactory<URLRequestFetchJob> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(URLRequestFetchJob);
 };

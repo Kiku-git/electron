@@ -7,7 +7,7 @@ and then enable it in your application.
 ## Prepare a Copy of Flash Plugin
 
 On macOS and Linux, the details of the Pepper Flash plugin can be found by
-navigating to `chrome://plugins` in the Chrome browser. Its location and version
+navigating to `chrome://flash` in the Chrome browser. Its location and version
 are useful for Electron's Pepper Flash support. You can also copy it to another
 location.
 
@@ -20,7 +20,7 @@ before the app ready event. Also, turn on `plugins` option of `BrowserWindow`.
 For example:
 
 ```javascript
-const {app, BrowserWindow} = require('electron')
+const { app, BrowserWindow } = require('electron')
 const path = require('path')
 
 // Specify flash path, supposing it is placed in the same directory with main.js.

@@ -5,12 +5,15 @@
 #include "atom/browser/api/atom_api_web_request.h"
 
 #include <string>
+#include <utility>
 
 #include "atom/browser/atom_browser_context.h"
 #include "atom/browser/net/atom_network_delegate.h"
 #include "atom/common/native_mate_converters/callback.h"
 #include "atom/common/native_mate_converters/net_converter.h"
 #include "atom/common/native_mate_converters/value_converter.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "native_mate/dictionary.h"
 #include "native_mate/object_template_builder.h"
@@ -28,7 +31,7 @@ struct Converter<URLPattern> {
     if (!ConvertFromV8(isolate, val, &pattern))
       return false;
     *out = URLPattern(URLPattern::SCHEME_ALL);
-    return out->Parse(pattern) == URLPattern::PARSE_SUCCESS;
+    return out->Parse(pattern) == URLPattern::ParseResult::kSuccess;
   }
 };
 
@@ -42,17 +45,15 @@ namespace {
 
 template <typename Method, typename Event, typename Listener>
 void CallNetworkDelegateMethod(
-    brightray::URLRequestContextGetter* url_request_context_getter,
+    URLRequestContextGetter* url_request_context_getter,
     Method method,
     Event type,
     URLPatterns patterns,
     Listener listener) {
   // Force creating network delegate.
-  net::URLRequestContext* context =
-      url_request_context_getter->GetURLRequestContext();
+  url_request_context_getter->GetURLRequestContext();
   // Then call the method.
-  AtomNetworkDelegate* network_delegate =
-      static_cast<AtomNetworkDelegate*>(context->network_delegate());
+  auto* network_delegate = url_request_context_getter->network_delegate();
   (network_delegate->*method)(type, std::move(patterns), std::move(listener));
 }
 
@@ -94,12 +95,12 @@ void WebRequest::SetListener(Method method, Event type, mate::Arguments* args) {
     return;
   }
 
-  brightray::URLRequestContextGetter* url_request_context_getter =
-      browser_context_->url_request_context_getter();
+  auto* url_request_context_getter = static_cast<URLRequestContextGetter*>(
+      browser_context_->GetRequestContext());
   if (!url_request_context_getter)
     return;
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&CallNetworkDelegateMethod<Method, Event, Listener>,
                      base::RetainedRef(url_request_context_getter), method,
                      type, std::move(patterns), std::move(listener)));

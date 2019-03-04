@@ -12,11 +12,6 @@
 #include "content/public/browser/web_contents.h"
 #include "third_party/skia/include/core/SkColor.h"
 
-namespace brightray {
-class InspectableWebContents;
-class InspectableWebContentsView;
-}  // namespace brightray
-
 namespace gfx {
 class Rect;
 }
@@ -26,20 +21,25 @@ namespace atom {
 enum AutoResizeFlags {
   kAutoResizeWidth = 0x1,
   kAutoResizeHeight = 0x2,
+  kAutoResizeHorizontal = 0x4,
+  kAutoResizeVertical = 0x8,
 };
+
+class InspectableWebContents;
+class InspectableWebContentsView;
 
 class NativeBrowserView {
  public:
   virtual ~NativeBrowserView();
 
   static NativeBrowserView* Create(
-      brightray::InspectableWebContents* inspectable_web_contents);
+      InspectableWebContents* inspectable_web_contents);
 
-  brightray::InspectableWebContents* GetInspectableWebContents() {
+  InspectableWebContents* GetInspectableWebContents() {
     return inspectable_web_contents_;
   }
 
-  brightray::InspectableWebContentsView* GetInspectableWebContentsView();
+  InspectableWebContentsView* GetInspectableWebContentsView();
   content::WebContents* GetWebContents();
 
   virtual void SetAutoResizeFlags(uint8_t flags) = 0;
@@ -51,10 +51,9 @@ class NativeBrowserView {
       const std::vector<gfx::Rect>& system_drag_exclude_areas) {}
 
  protected:
-  explicit NativeBrowserView(
-      brightray::InspectableWebContents* inspectable_web_contents);
+  explicit NativeBrowserView(InspectableWebContents* inspectable_web_contents);
 
-  brightray::InspectableWebContents* inspectable_web_contents_;
+  InspectableWebContents* inspectable_web_contents_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(NativeBrowserView);

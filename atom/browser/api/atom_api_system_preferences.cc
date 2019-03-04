@@ -37,6 +37,12 @@ bool SystemPreferences::IsInvertedColorScheme() {
   return color_utils::IsInvertedColorScheme();
 }
 
+#if !defined(OS_WIN)
+bool SystemPreferences::IsHighContrastColorScheme() {
+  return false;
+}
+#endif  // !defined(OS_WIN)
+
 // static
 mate::Handle<SystemPreferences> SystemPreferences::Create(
     v8::Isolate* isolate) {
@@ -49,10 +55,13 @@ void SystemPreferences::BuildPrototype(
     v8::Local<v8::FunctionTemplate> prototype) {
   prototype->SetClassName(mate::StringToV8(isolate, "SystemPreferences"));
   mate::ObjectTemplateBuilder(isolate, prototype->PrototypeTemplate())
-#if defined(OS_WIN)
-      .SetMethod("getAccentColor", &SystemPreferences::GetAccentColor)
-      .SetMethod("isAeroGlassEnabled", &SystemPreferences::IsAeroGlassEnabled)
+#if defined(OS_WIN) || defined(OS_MACOSX)
       .SetMethod("getColor", &SystemPreferences::GetColor)
+      .SetMethod("getAccentColor", &SystemPreferences::GetAccentColor)
+#endif
+
+#if defined(OS_WIN)
+      .SetMethod("isAeroGlassEnabled", &SystemPreferences::IsAeroGlassEnabled)
 #elif defined(OS_MACOSX)
       .SetMethod("postNotification", &SystemPreferences::PostNotification)
       .SetMethod("subscribeNotification",
@@ -77,9 +86,25 @@ void SystemPreferences::BuildPrototype(
       .SetMethod("removeUserDefault", &SystemPreferences::RemoveUserDefault)
       .SetMethod("isSwipeTrackingFromScrollEventsEnabled",
                  &SystemPreferences::IsSwipeTrackingFromScrollEventsEnabled)
+      .SetMethod("getEffectiveAppearance",
+                 &SystemPreferences::GetEffectiveAppearance)
+      .SetMethod("getAppLevelAppearance",
+                 &SystemPreferences::GetAppLevelAppearance)
+      .SetMethod("setAppLevelAppearance",
+                 &SystemPreferences::SetAppLevelAppearance)
+      .SetMethod("getSystemColor", &SystemPreferences::GetSystemColor)
+      .SetMethod("canPromptTouchID", &SystemPreferences::CanPromptTouchID)
+      .SetMethod("promptTouchID", &SystemPreferences::PromptTouchID)
+      .SetMethod("isTrustedAccessibilityClient",
+                 &SystemPreferences::IsTrustedAccessibilityClient)
+      .SetMethod("getMediaAccessStatus",
+                 &SystemPreferences::GetMediaAccessStatus)
+      .SetMethod("askForMediaAccess", &SystemPreferences::AskForMediaAccess)
 #endif
       .SetMethod("isInvertedColorScheme",
                  &SystemPreferences::IsInvertedColorScheme)
+      .SetMethod("isHighContrastColorScheme",
+                 &SystemPreferences::IsHighContrastColorScheme)
       .SetMethod("isDarkMode", &SystemPreferences::IsDarkMode);
 }
 
@@ -98,8 +123,9 @@ void Initialize(v8::Local<v8::Object> exports,
   v8::Isolate* isolate = context->GetIsolate();
   mate::Dictionary dict(isolate, exports);
   dict.Set("systemPreferences", SystemPreferences::Create(isolate));
-  dict.Set("SystemPreferences",
-           SystemPreferences::GetConstructor(isolate)->GetFunction());
+  dict.Set("SystemPreferences", SystemPreferences::GetConstructor(isolate)
+                                    ->GetFunction(context)
+                                    .ToLocalChecked());
 }
 
 }  // namespace

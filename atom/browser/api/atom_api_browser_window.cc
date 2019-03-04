@@ -4,6 +4,8 @@
 
 #include "atom/browser/api/atom_api_browser_window.h"
 
+#include <memory>
+
 #include "atom/browser/browser.h"
 #include "atom/browser/unresponsive_suppressor.h"
 #include "atom/browser/web_contents_preferences.h"
@@ -16,8 +18,10 @@
 #include "atom/common/options_switches.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
+#include "content/browser/renderer_host/render_widget_host_owner_delegate.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
+#include "gin/converter.h"
 #include "native_mate/dictionary.h"
 #include "ui/gl/gpu_switching_manager.h"
 
@@ -55,7 +59,7 @@ BrowserWindow::BrowserWindow(v8::Isolate* isolate,
     base::DictionaryValue web_preferences_dict;
     if (mate::ConvertFromV8(isolate, web_preferences.GetHandle(),
                             &web_preferences_dict)) {
-      existing_preferences->dict()->Clear();
+      existing_preferences->Clear();
       existing_preferences->Merge(web_preferences_dict);
     }
   } else {
@@ -72,10 +76,6 @@ BrowserWindow::BrowserWindow(v8::Isolate* isolate,
   mate::Dictionary(isolate, web_contents->GetWrapper())
       .Set("browserWindowOptions", options);
 
-  // Tell the content module to initialize renderer widget with transparent
-  // mode.
-  ui::GpuSwitchingManager::SetTransparent(window()->transparent());
-
   // Associate with BrowserWindow.
   web_contents->SetOwnerWindow(window());
 
@@ -84,6 +84,11 @@ BrowserWindow::BrowserWindow(v8::Isolate* isolate,
     host->GetWidget()->AddInputEventObserver(this);
 
   InitWith(isolate, wrapper);
+
+#if defined(OS_MACOSX)
+  if (!window()->has_frame())
+    OverrideNSWindowContentView(web_contents->managed_web_contents());
+#endif
 
   // Init window after everything has been setup.
   window()->InitFromOptions(options);
@@ -126,7 +131,7 @@ void BrowserWindow::RenderViewCreated(
       render_view_host->GetProcess()->GetID(),
       render_view_host->GetRoutingID());
   if (impl)
-    impl->SetBackgroundOpaque(false);
+    impl->owner_delegate()->SetBackgroundOpaque(false);
 }
 
 void BrowserWindow::DidFirstVisuallyNonEmptyPaint() {
@@ -178,7 +183,14 @@ bool BrowserWindow::OnMessageReceived(const IPC::Message& message,
 }
 
 void BrowserWindow::OnCloseContents() {
-  DCHECK(web_contents());
+  // On some machines it may happen that the window gets destroyed for twice,
+  // checking web_contents() can effectively guard against that.
+  // https://github.com/electron/electron/issues/16202.
+  //
+  // TODO(zcbenz): We should find out the root cause and improve the closing
+  // procedure of BrowserWindow.
+  if (!web_contents())
+    return;
 
   // Close all child windows before closing current window.
   v8::Locker locker(isolate());
@@ -227,7 +239,7 @@ void BrowserWindow::OnCloseButtonClicked(bool* prevent_default) {
     return;
 
   if (web_contents()->NeedToFireBeforeUnload())
-    web_contents()->DispatchBeforeUnload();
+    web_contents()->DispatchBeforeUnload(false /* auto_cancel */);
   else
     web_contents()->Close();
 }
@@ -300,15 +312,37 @@ void BrowserWindow::SetBackgroundColor(const std::string& color_name) {
 }
 
 void BrowserWindow::SetBrowserView(v8::Local<v8::Value> value) {
-  TopLevelWindow::SetBrowserView(value);
+  TopLevelWindow::ResetBrowserViews();
+  TopLevelWindow::AddBrowserView(value);
 #if defined(OS_MACOSX)
   UpdateDraggableRegions(nullptr, draggable_regions_);
 #endif
 }
 
-void BrowserWindow::SetVibrancy(mate::Arguments* args) {
-  std::string type;
-  args->GetNext(&type);
+void BrowserWindow::AddBrowserView(v8::Local<v8::Value> value) {
+  TopLevelWindow::AddBrowserView(value);
+#if defined(OS_MACOSX)
+  UpdateDraggableRegions(nullptr, draggable_regions_);
+#endif
+}
+
+void BrowserWindow::RemoveBrowserView(v8::Local<v8::Value> value) {
+  TopLevelWindow::RemoveBrowserView(value);
+#if defined(OS_MACOSX)
+  UpdateDraggableRegions(nullptr, draggable_regions_);
+#endif
+}
+
+void BrowserWindow::ResetBrowserViews() {
+  TopLevelWindow::ResetBrowserViews();
+#if defined(OS_MACOSX)
+  UpdateDraggableRegions(nullptr, draggable_regions_);
+#endif
+}
+
+void BrowserWindow::SetVibrancy(v8::Isolate* isolate,
+                                v8::Local<v8::Value> value) {
+  std::string type = gin::V8ToString(isolate, value);
 
   auto* render_view_host = web_contents()->GetRenderViewHost();
   if (render_view_host) {
@@ -316,10 +350,11 @@ void BrowserWindow::SetVibrancy(mate::Arguments* args) {
         render_view_host->GetProcess()->GetID(),
         render_view_host->GetRoutingID());
     if (impl)
-      impl->SetBackgroundOpaque(type.empty() ? !window_->transparent() : false);
+      impl->owner_delegate()->SetBackgroundOpaque(
+          type.empty() ? !window_->transparent() : false);
   }
 
-  TopLevelWindow::SetVibrancy(args);
+  TopLevelWindow::SetVibrancy(isolate, value);
 }
 
 void BrowserWindow::FocusOnWebView() {
@@ -378,7 +413,9 @@ void BrowserWindow::Cleanup() {
   if (host)
     host->GetWidget()->RemoveInputEventObserver(this);
 
-  api_web_contents_->DestroyWebContents(true /* async */);
+  // Destroy WebContents asynchronously unless app is shutting down,
+  // because destroy() might be called inside WebContents's event handler.
+  api_web_contents_->DestroyWebContents(!Browser::Get()->is_shutting_down());
   Observe(nullptr);
 }
 

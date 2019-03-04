@@ -4,11 +4,17 @@
 // found in the LICENSE file.
 
 #include "atom/browser/net/atom_url_request.h"
+
+#include <memory>
 #include <string>
+#include <utility>
+
 #include "atom/browser/api/atom_api_url_request.h"
 #include "atom/browser/atom_browser_context.h"
 #include "atom/browser/net/atom_url_request_job_factory.h"
 #include "base/callback.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/elements_upload_data_stream.h"
 #include "net/base/io_buffer.h"
@@ -69,15 +75,12 @@ scoped_refptr<AtomURLRequest> AtomURLRequest::Create(
   if (!browser_context || url.empty() || !delegate) {
     return nullptr;
   }
-  scoped_refptr<brightray::URLRequestContextGetter> request_context_getter(
-      browser_context->url_request_context_getter());
+  scoped_refptr<net::URLRequestContextGetter> request_context_getter(
+      browser_context->GetRequestContext());
   DCHECK(request_context_getter);
-  if (!request_context_getter) {
-    return nullptr;
-  }
   scoped_refptr<AtomURLRequest> atom_url_request(new AtomURLRequest(delegate));
-  if (content::BrowserThread::PostTask(
-          content::BrowserThread::IO, FROM_HERE,
+  if (base::PostTaskWithTraits(
+          FROM_HERE, {content::BrowserThread::IO},
           base::BindOnce(&AtomURLRequest::DoInitialize, atom_url_request,
                          request_context_getter, method, url,
                          redirect_policy))) {
@@ -89,9 +92,8 @@ scoped_refptr<AtomURLRequest> AtomURLRequest::Create(
 void AtomURLRequest::Terminate() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   delegate_ = nullptr;
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
-      base::BindOnce(&AtomURLRequest::DoTerminate, this));
+  base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::IO},
+                           base::BindOnce(&AtomURLRequest::DoTerminate, this));
 }
 
 void AtomURLRequest::DoInitialize(
@@ -139,8 +141,8 @@ void AtomURLRequest::DoTerminate() {
 bool AtomURLRequest::Write(scoped_refptr<const net::IOBufferWithSize> buffer,
                            bool is_last) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  return content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
+  return base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(&AtomURLRequest::DoWriteBuffer, this, buffer, is_last));
 }
 
@@ -155,30 +157,29 @@ void AtomURLRequest::SetChunkedUpload(bool is_chunked_upload) {
 
 void AtomURLRequest::Cancel() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
-      base::BindOnce(&AtomURLRequest::DoCancel, this));
+  base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::IO},
+                           base::BindOnce(&AtomURLRequest::DoCancel, this));
 }
 
 void AtomURLRequest::FollowRedirect() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(&AtomURLRequest::DoFollowRedirect, this));
 }
 
 void AtomURLRequest::SetExtraHeader(const std::string& name,
                                     const std::string& value) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(&AtomURLRequest::DoSetExtraHeader, this, name, value));
 }
 
 void AtomURLRequest::RemoveExtraHeader(const std::string& name) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(&AtomURLRequest::DoRemoveExtraHeader, this, name));
 }
 
@@ -187,20 +188,20 @@ void AtomURLRequest::PassLoginInformation(
     const base::string16& password) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (username.empty() || password.empty()) {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::IO},
         base::BindOnce(&AtomURLRequest::DoCancelAuth, this));
   } else {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::IO},
         base::BindOnce(&AtomURLRequest::DoSetAuth, this, username, password));
   }
 }
 
 void AtomURLRequest::SetLoadFlags(int flags) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(&AtomURLRequest::DoSetLoadFlags, this, flags));
 }
 
@@ -266,7 +267,8 @@ void AtomURLRequest::DoCancel() {
 void AtomURLRequest::DoFollowRedirect() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (request_ && request_->is_redirecting() && redirect_policy_ == "manual") {
-    request_->FollowDeferredRedirect();
+    request_->FollowDeferredRedirect(base::nullopt /* removed_headers */,
+                                     base::nullopt /* modified_headers */);
   }
 }
 
@@ -307,8 +309,8 @@ void AtomURLRequest::DoCancelAuth() const {
 void AtomURLRequest::DoCancelWithError(const std::string& error,
                                        bool isRequestError) {
   DoCancel();
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::UI},
       base::BindOnce(&AtomURLRequest::InformDelegateErrorOccured, this, error,
                      isRequestError));
 }
@@ -336,8 +338,8 @@ void AtomURLRequest::OnReceivedRedirect(net::URLRequest* request,
     *defer_redirect = true;
     scoped_refptr<net::HttpResponseHeaders> response_headers =
         request->response_headers();
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(&AtomURLRequest::InformDelegateReceivedRedirect, this,
                        info.status_code, info.new_method, info.new_url,
                        response_headers));
@@ -348,8 +350,8 @@ void AtomURLRequest::OnAuthRequired(net::URLRequest* request,
                                     net::AuthChallengeInfo* auth_info) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::UI},
       base::BindOnce(&AtomURLRequest::InformDelegateAuthenticationRequired,
                      this, scoped_refptr<net::AuthChallengeInfo>(auth_info)));
 }
@@ -367,8 +369,8 @@ void AtomURLRequest::OnResponseStarted(net::URLRequest* request,
   const auto& status = request_->status();
   if (status.is_success()) {
     // Success or pending trigger a Read.
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(&AtomURLRequest::InformDelegateResponseStarted, this,
                        response_headers));
     ReadResponse();
@@ -426,8 +428,8 @@ void AtomURLRequest::OnReadCompleted(net::URLRequest* request, int bytes_read) {
   if (response_error) {
     DoCancelWithError(net::ErrorToString(status.ToNetError()), false);
   } else if (data_ended) {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(&AtomURLRequest::InformDelegateResponseCompleted, this));
     DoTerminate();
   } else if (data_transfer_error) {
@@ -449,8 +451,8 @@ bool AtomURLRequest::CopyAndPostBuffer(int bytes_read) {
   auto buffer_copy = WrapRefCounted(new net::IOBufferWithSize(bytes_read));
   memcpy(buffer_copy->data(), response_read_buffer_->data(), bytes_read);
 
-  return content::BrowserThread::PostTask(
-      content::BrowserThread::UI, FROM_HERE,
+  return base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::UI},
       base::BindOnce(&AtomURLRequest::InformDelegateResponseData, this,
                      buffer_copy));
 }
@@ -502,6 +504,18 @@ void AtomURLRequest::InformDelegateErrorOccured(const std::string& error,
 
   if (delegate_)
     delegate_->OnError(error, isRequestError);
+}
+
+void AtomURLRequest::GetUploadProgress(mate::Dictionary* progress) const {
+  net::UploadProgress upload_progress;
+  if (request_) {
+    progress->Set("started", true);
+    upload_progress = request_->GetUploadProgress();
+  } else {
+    progress->Set("started", false);
+  }
+  progress->Set("current", upload_progress.position());
+  progress->Set("total", upload_progress.size());
 }
 
 }  // namespace atom

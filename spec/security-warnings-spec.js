@@ -4,10 +4,10 @@ const fs = require('fs')
 const path = require('path')
 const url = require('url')
 
-const {remote} = require('electron')
-const {BrowserWindow} = remote
+const { remote } = require('electron')
+const { BrowserWindow } = remote
 
-const {closeWindow} = require('./window-helpers')
+const { closeWindow } = require('./window-helpers')
 
 describe('security warnings', () => {
   let server
@@ -59,7 +59,12 @@ describe('security warnings', () => {
   })
 
   it('should warn about Node.js integration with remote content', (done) => {
-    w = new BrowserWindow({ show: false })
+    w = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        nodeIntegration: true
+      }
+    })
     w.webContents.once('console-message', (e, level, message) => {
       assert(message.includes('Node.js Integration with Remote Content'), message)
       done()
@@ -68,115 +73,117 @@ describe('security warnings', () => {
     w.loadURL(`http://127.0.0.1:8881/base-page-security.html`)
   })
 
-  it('should warn about disabled webSecurity', (done) => {
-    w = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        webSecurity: false,
-        nodeIntegration: false
-      }
-    })
-    w.webContents.once('console-message', (e, level, message) => {
-      assert(message.includes('Disabled webSecurity'), message)
-      done()
-    })
+  const generateSpecs = (description, webPreferences) => {
+    describe(description, () => {
+      it('should warn about disabled webSecurity', (done) => {
+        w = new BrowserWindow({
+          show: false,
+          webPreferences: {
+            webSecurity: false,
+            ...webPreferences
+          }
+        })
+        w.webContents.once('console-message', (e, level, message) => {
+          assert(message.includes('Disabled webSecurity'), message)
+          done()
+        })
 
-    w.loadURL(`http://127.0.0.1:8881/base-page-security.html`)
-  })
+        w.loadURL(`http://127.0.0.1:8881/base-page-security.html`)
+      })
 
-  it('should warn about insecure Content-Security-Policy', (done) => {
-    w = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        nodeIntegration: false
-      }
+      it('should warn about insecure Content-Security-Policy', (done) => {
+        w = new BrowserWindow({
+          show: false,
+          webPreferences
+        })
+
+        w.webContents.once('console-message', (e, level, message) => {
+          assert(message.includes('Insecure Content-Security-Policy'), message)
+          done()
+        })
+
+        useCsp = false
+        w.loadURL(`http://127.0.0.1:8881/base-page-security.html`)
+      })
+
+      it('should warn about allowRunningInsecureContent', (done) => {
+        w = new BrowserWindow({
+          show: false,
+          webPreferences: {
+            allowRunningInsecureContent: true,
+            ...webPreferences
+          }
+        })
+        w.webContents.once('console-message', (e, level, message) => {
+          assert(message.includes('allowRunningInsecureContent'), message)
+          done()
+        })
+
+        w.loadURL(`http://127.0.0.1:8881/base-page-security.html`)
+      })
+
+      it('should warn about experimentalFeatures', (done) => {
+        w = new BrowserWindow({
+          show: false,
+          webPreferences: {
+            experimentalFeatures: true,
+            ...webPreferences
+          }
+        })
+        w.webContents.once('console-message', (e, level, message) => {
+          assert(message.includes('experimentalFeatures'), message)
+          done()
+        })
+
+        w.loadURL(`http://127.0.0.1:8881/base-page-security.html`)
+      })
+
+      it('should warn about enableBlinkFeatures', (done) => {
+        w = new BrowserWindow({
+          show: false,
+          webPreferences: {
+            enableBlinkFeatures: ['my-cool-feature'],
+            ...webPreferences
+          }
+        })
+        w.webContents.once('console-message', (e, level, message) => {
+          assert(message.includes('enableBlinkFeatures'), message)
+          done()
+        })
+
+        w.loadURL(`http://127.0.0.1:8881/base-page-security.html`)
+      })
+
+      it('should warn about allowpopups', (done) => {
+        w = new BrowserWindow({
+          show: false,
+          webPreferences
+        })
+        w.webContents.once('console-message', (e, level, message) => {
+          assert(message.includes('allowpopups'), message)
+          done()
+        })
+
+        w.loadURL(`http://127.0.0.1:8881/webview-allowpopups.html`)
+      })
+
+      it('should warn about insecure resources', (done) => {
+        w = new BrowserWindow({
+          show: false,
+          webPreferences
+        })
+        w.webContents.once('console-message', (e, level, message) => {
+          assert(message.includes('Insecure Resources'), message)
+          done()
+        })
+
+        w.loadURL(`http://127.0.0.1:8881/insecure-resources.html`)
+        w.webContents.openDevTools()
+      })
     })
+  }
 
-    w.webContents.once('console-message', (e, level, message) => {
-      assert(message.includes('Insecure Content-Security-Policy'), message)
-      done()
-    })
-
-    useCsp = false
-    w.loadURL(`http://127.0.0.1:8881/base-page-security.html`)
-  })
-
-  it('should warn about allowRunningInsecureContent', (done) => {
-    w = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        allowRunningInsecureContent: true,
-        nodeIntegration: false
-      }
-    })
-    w.webContents.once('console-message', (e, level, message) => {
-      assert(message.includes('allowRunningInsecureContent'), message)
-      done()
-    })
-
-    w.loadURL(`http://127.0.0.1:8881/base-page-security.html`)
-  })
-
-  it('should warn about experimentalFeatures', (done) => {
-    w = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        experimentalFeatures: true,
-        nodeIntegration: false
-      }
-    })
-    w.webContents.once('console-message', (e, level, message) => {
-      assert(message.includes('experimentalFeatures'), message)
-      done()
-    })
-
-    w.loadURL(`http://127.0.0.1:8881/base-page-security.html`)
-  })
-
-  it('should warn about enableBlinkFeatures', (done) => {
-    w = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        enableBlinkFeatures: ['my-cool-feature'],
-        nodeIntegration: false
-      }
-    })
-    w.webContents.once('console-message', (e, level, message) => {
-      assert(message.includes('enableBlinkFeatures'), message)
-      done()
-    })
-
-    w.loadURL(`http://127.0.0.1:8881/base-page-security.html`)
-  })
-
-  it('should warn about allowpopups', (done) => {
-    w = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        nodeIntegration: false
-      }
-    })
-    w.webContents.once('console-message', (e, level, message) => {
-      assert(message.includes('allowpopups'), message)
-      done()
-    })
-
-    w.loadURL(`http://127.0.0.1:8881/webview-allowpopups.html`)
-  })
-
-  it('should warn about insecure resources', (done) => {
-    w = new BrowserWindow({
-      show: true,
-      webPreferences: {
-        nodeIntegration: false
-      }
-    })
-    w.webContents.once('console-message', (e, level, message) => {
-      assert(message.includes('Insecure Resources'), message)
-      done()
-    })
-
-    w.loadURL(`http://127.0.0.1:8881/insecure-resources.html`)
-    w.webContents.openDevTools()
-  })
+  generateSpecs('without sandbox', {})
+  generateSpecs('with sandbox', { sandbox: true })
+  generateSpecs('with remote module disabled', { enableRemoteModule: false })
 })

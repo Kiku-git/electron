@@ -4,6 +4,8 @@
 
 #include "atom/common/native_mate_converters/value_converter.h"
 
+#include <memory>
+
 #include "atom/common/native_mate_converters/v8_value_converter.h"
 #include "base/values.h"
 
@@ -26,6 +28,26 @@ bool Converter<base::DictionaryValue>::FromV8(v8::Isolate* isolate,
 v8::Local<v8::Value> Converter<base::DictionaryValue>::ToV8(
     v8::Isolate* isolate,
     const base::DictionaryValue& val) {
+  atom::V8ValueConverter converter;
+  return converter.ToV8Value(&val, isolate->GetCurrentContext());
+}
+
+bool Converter<base::Value>::FromV8(v8::Isolate* isolate,
+                                    v8::Local<v8::Value> val,
+                                    base::Value* out) {
+  atom::V8ValueConverter converter;
+  std::unique_ptr<base::Value> value(
+      converter.FromV8Value(val, isolate->GetCurrentContext()));
+  if (value) {
+    *out = value->Clone();
+    return true;
+  } else {
+    return false;
+  }
+}
+
+v8::Local<v8::Value> Converter<base::Value>::ToV8(v8::Isolate* isolate,
+                                                  const base::Value& val) {
   atom::V8ValueConverter converter;
   return converter.ToV8Value(&val, isolate->GetCurrentContext());
 }

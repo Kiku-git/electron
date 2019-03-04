@@ -5,16 +5,20 @@
 
 #import "atom/browser/ui/cocoa/atom_menu_controller.h"
 
+#include "atom/browser/mac/atom_application.h"
 #include "atom/browser/ui/atom_menu_model.h"
 #include "base/logging.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/accelerators/platform_accelerator_cocoa.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/events/cocoa/cocoa_event_utils.h"
 #include "ui/gfx/image/image.h"
+#include "ui/strings/grit/ui_strings.h"
 
 using content::BrowserThread;
 
@@ -55,6 +59,29 @@ Role kRolesMap[] = {
     {@selector(moveTabToNewWindow:), "movetabtonewwindow"},
     {@selector(clearRecentDocuments:), "clearrecentdocuments"},
 };
+
+// Called when adding a submenu to the menu and checks if the submenu, via its
+// |model|, has visible child items.
+bool MenuHasVisibleItems(const atom::AtomMenuModel* model) {
+  int count = model->GetItemCount();
+  for (int index = 0; index < count; index++) {
+    if (model->IsVisibleAt(index))
+      return true;
+  }
+  return false;
+}
+
+// Called when an empty submenu is created. This inserts a menu item labeled
+// "(empty)" into the submenu. Matches Windows behavior.
+NSMenu* MakeEmptySubmenu() {
+  base::scoped_nsobject<NSMenu> submenu([[NSMenu alloc] initWithTitle:@""]);
+  NSString* empty_menu_title =
+      l10n_util::GetNSString(IDS_APP_MENU_EMPTY_SUBMENU);
+
+  [submenu addItemWithTitle:empty_menu_title action:NULL keyEquivalent:@""];
+  [[submenu itemAtIndex:0] setEnabled:NO];
+  return submenu.autorelease();
+}
 
 }  // namespace
 
@@ -123,7 +150,9 @@ static base::scoped_nsobject<NSMenu> recentDocumentsMenuSwap_;
     [menu_ cancelTracking];
     isMenuOpen_ = NO;
     model_->MenuWillClose();
-    closeCallback.Run();
+    if (!closeCallback.is_null()) {
+      base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI}, closeCallback);
+    }
   }
 }
 
@@ -206,23 +235,41 @@ static base::scoped_nsobject<NSMenu> recentDocumentsMenuSwap_;
 
   base::string16 role = model->GetRoleAt(index);
   atom::AtomMenuModel::ItemType type = model->GetTypeAt(index);
-  if (type == atom::AtomMenuModel::TYPE_SUBMENU) {
+
+  if (role == base::ASCIIToUTF16("services")) {
+    base::string16 title = base::ASCIIToUTF16("Services");
+    NSString* label = l10n_util::FixUpWindowsStyleLabel(title);
+
+    [item setTarget:nil];
+    [item setAction:nil];
+    NSMenu* submenu = [[NSMenu alloc] initWithTitle:label];
+    [item setSubmenu:submenu];
+    [NSApp setServicesMenu:submenu];
+  } else if (type == atom::AtomMenuModel::TYPE_SUBMENU &&
+             model->IsVisibleAt(index)) {
+    // We need to specifically check that the submenu top-level item has been
+    // enabled as it's not validated by validateUserInterfaceItem
+    if (!model->IsEnabledAt(index))
+      [item setEnabled:NO];
+
     // Recursively build a submenu from the sub-model at this index.
     [item setTarget:nil];
     [item setAction:nil];
     atom::AtomMenuModel* submenuModel =
         static_cast<atom::AtomMenuModel*>(model->GetSubmenuModelAt(index));
-    NSMenu* submenu = [self menuFromModel:submenuModel];
+    NSMenu* submenu = MenuHasVisibleItems(submenuModel)
+                          ? [self menuFromModel:submenuModel]
+                          : MakeEmptySubmenu();
     [submenu setTitle:[item title]];
     [item setSubmenu:submenu];
 
     // Set submenu's role.
-    if (role == base::ASCIIToUTF16("window") && [submenu numberOfItems])
+    if ((role == base::ASCIIToUTF16("window") ||
+         role == base::ASCIIToUTF16("windowmenu")) &&
+        [submenu numberOfItems])
       [NSApp setWindowsMenu:submenu];
     else if (role == base::ASCIIToUTF16("help"))
       [NSApp setHelpMenu:submenu];
-    else if (role == base::ASCIIToUTF16("services"))
-      [NSApp setServicesMenu:submenu];
     else if (role == base::ASCIIToUTF16("recentdocuments"))
       [self replaceSubmenuShowingRecentDocuments:item];
   } else {
@@ -237,14 +284,17 @@ static base::scoped_nsobject<NSMenu> recentDocumentsMenuSwap_;
     ui::Accelerator accelerator;
     if (model->GetAcceleratorAtWithParams(index, useDefaultAccelerator_,
                                           &accelerator)) {
-      const ui::PlatformAcceleratorCocoa* platformAccelerator =
-          static_cast<const ui::PlatformAcceleratorCocoa*>(
-              accelerator.platform_accelerator());
-      if (platformAccelerator) {
-        [item setKeyEquivalent:platformAccelerator->characters()];
-        [item
-            setKeyEquivalentModifierMask:platformAccelerator->modifier_mask()];
-      }
+      NSString* key_equivalent;
+      NSUInteger modifier_mask;
+      GetKeyEquivalentAndModifierMaskFromAccelerator(
+          accelerator, &key_equivalent, &modifier_mask);
+      [item setKeyEquivalent:key_equivalent];
+      [item setKeyEquivalentModifierMask:modifier_mask];
+    }
+
+    if (@available(macOS 10.13, *)) {
+      [(id)item
+          setAllowsKeyEquivalentWhenHidden:(model->WorksWhenHiddenAt(index))];
     }
 
     // Set menu item's role.
@@ -263,8 +313,7 @@ static base::scoped_nsobject<NSMenu> recentDocumentsMenuSwap_;
 }
 
 // Called before the menu is to be displayed to update the state (enabled,
-// radio, etc) of each item in the menu. Also will update the title if
-// the item is marked as "dynamic".
+// radio, etc) of each item in the menu.
 - (BOOL)validateUserInterfaceItem:(id<NSValidatedUserInterfaceItem>)item {
   SEL action = [item action];
   if (action != @selector(itemSelected:))
@@ -277,18 +326,10 @@ static base::scoped_nsobject<NSMenu> recentDocumentsMenuSwap_;
   if (model) {
     BOOL checked = model->IsItemCheckedAt(modelIndex);
     DCHECK([(id)item isKindOfClass:[NSMenuItem class]]);
+
     [(id)item setState:(checked ? NSOnState : NSOffState)];
     [(id)item setHidden:(!model->IsVisibleAt(modelIndex))];
-    if (model->IsItemDynamicAt(modelIndex)) {
-      // Update the label and the icon.
-      NSString* label =
-          l10n_util::FixUpWindowsStyleLabel(model->GetLabelAt(modelIndex));
-      [(id)item setTitle:label];
 
-      gfx::Image icon;
-      model->GetIconAt(modelIndex, &icon);
-      [(id)item setImage:icon.IsEmpty() ? nil : icon.ToNSImage()];
-    }
     return model->IsEnabledAt(modelIndex);
   }
   return NO;
@@ -335,7 +376,7 @@ static base::scoped_nsobject<NSMenu> recentDocumentsMenuSwap_;
     // Post async task so that itemSelected runs before the close callback
     // deletes the controller from the map which deallocates it
     if (!closeCallback.is_null()) {
-      BrowserThread::PostTask(BrowserThread::UI, FROM_HERE, closeCallback);
+      base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI}, closeCallback);
     }
   }
 }

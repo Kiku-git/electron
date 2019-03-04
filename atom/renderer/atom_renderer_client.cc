@@ -12,18 +12,16 @@
 #include "atom/common/asar/asar_util.h"
 #include "atom/common/node_bindings.h"
 #include "atom/common/options_switches.h"
-#include "atom/renderer/api/atom_api_renderer_ipc.h"
 #include "atom/renderer/atom_render_frame_observer.h"
 #include "atom/renderer/web_worker_observer.h"
 #include "base/command_line.h"
 #include "content/public/renderer/render_frame.h"
 #include "native_mate/dictionary.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 
 #include "atom/common/node_includes.h"
-#include "atom_natives.h"  // NOLINT: This file is generated with js2c
-#include "tracing/trace_event.h"
+#include "third_party/electron_node/src/node_native_module.h"
 
 namespace atom {
 
@@ -79,14 +77,29 @@ void AtomRendererClient::RunScriptsAtDocumentEnd(
 void AtomRendererClient::DidCreateScriptContext(
     v8::Handle<v8::Context> context,
     content::RenderFrame* render_frame) {
-  // Only allow node integration for the main frame, unless it is a devtools
-  // extension page.
-  if (!render_frame->IsMainFrame() && !IsDevToolsExtension(render_frame))
+  RendererClientBase::DidCreateScriptContext(context, render_frame);
+
+  // TODO(zcbenz): Do not create Node environment if node integration is not
+  // enabled.
+
+  // Do not load node if we're aren't a main frame or a devtools extension
+  // unless node support has been explicitly enabled for sub frames
+  bool is_main_frame =
+      render_frame->IsMainFrame() && !render_frame->GetWebFrame()->Opener();
+  bool is_devtools = IsDevToolsExtension(render_frame);
+  bool allow_node_in_subframes =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kNodeIntegrationInSubFrames);
+  bool should_load_node =
+      is_main_frame || is_devtools || allow_node_in_subframes;
+  if (!should_load_node) {
     return;
+  }
 
   injected_frames_.insert(render_frame);
 
-  // Prepare the node bindings.
+  // If this is the first environment we are creating, prepare the node
+  // bindings.
   if (!node_integration_initialized_) {
     node_integration_initialized_ = true;
     node_bindings_->Initialize();
@@ -94,9 +107,8 @@ void AtomRendererClient::DidCreateScriptContext(
   }
 
   // Setup node tracing controller.
-  if (!node::tracing::TraceEventHelper::GetTracingController())
-    node::tracing::TraceEventHelper::SetTracingController(
-        new v8::TracingController());
+  if (!node::tracing::TraceEventHelper::GetAgent())
+    node::tracing::TraceEventHelper::SetAgent(node::CreateAgent());
 
   // Setup node environment for each window.
   node::Environment* env = node_bindings_->CreateEnvironment(context);
@@ -105,6 +117,8 @@ void AtomRendererClient::DidCreateScriptContext(
   // Add Electron extended APIs.
   atom_bindings_->BindTo(env->isolate(), env->process_object());
   AddRenderBindings(env->isolate(), env->process_object());
+  mate::Dictionary process_dict(env->isolate(), env->process_object());
+  process_dict.SetReadOnly("isMainFrame", render_frame->IsMainFrame());
 
   // Load everything.
   node_bindings_->LoadEnvironment(env);
@@ -136,11 +150,13 @@ void AtomRendererClient::WillReleaseScriptContext(
   if (env == node_bindings_->uv_env())
     node_bindings_->set_uv_env(nullptr);
 
-  // Destroy the node environment.
-  // This is disabled because pending async tasks may still use the environment
-  // and would cause crashes later. Node does not seem to clear all async tasks
-  // when the environment is destroyed.
-  // node::FreeEnvironment(env);
+  // Destroy the node environment.  We only do this if node support has been
+  // enabled for sub-frames to avoid a change-of-behavior / introduce crashes
+  // for existing users.
+  // TODO(MarshallOfSOund): Free the environment regardless of this switch
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kNodeIntegrationInSubFrames))
+    node::FreeEnvironment(env);
 
   // AtomBindings is tracking node environments.
   atom_bindings_->EnvironmentDestroyed(env);
@@ -150,13 +166,11 @@ bool AtomRendererClient::ShouldFork(blink::WebLocalFrame* frame,
                                     const GURL& url,
                                     const std::string& http_method,
                                     bool is_initial_navigation,
-                                    bool is_server_redirect,
-                                    bool* send_referrer) {
+                                    bool is_server_redirect) {
   // Handle all the navigations and reloads in browser.
   // FIXME We only support GET here because http method will be ignored when
   // the OpenURLFromTab is triggered, which means form posting would not work,
   // we should solve this by patching Chromium in future.
-  *send_referrer = true;
   return http_method == "GET";
 }
 
@@ -177,39 +191,23 @@ void AtomRendererClient::WillDestroyWorkerContextOnWorkerThread(
 }
 
 void AtomRendererClient::SetupMainWorldOverrides(
-    v8::Handle<v8::Context> context) {
+    v8::Handle<v8::Context> context,
+    content::RenderFrame* render_frame) {
   // Setup window overrides in the main world context
-  v8::Isolate* isolate = context->GetIsolate();
-
-  // Wrap the bundle into a function that receives the binding object as
+  // Wrap the bundle into a function that receives the isolatedWorld as
   // an argument.
-  std::string left = "(function (binding, require) {\n";
-  std::string right = "\n})";
-  auto script = v8::Script::Compile(v8::String::Concat(
-      mate::ConvertToV8(isolate, left)->ToString(),
-      v8::String::Concat(node::isolated_bundle_value.ToStringChecked(isolate),
-                         mate::ConvertToV8(isolate, right)->ToString())));
-  auto func =
-      v8::Handle<v8::Function>::Cast(script->Run(context).ToLocalChecked());
+  auto* isolate = context->GetIsolate();
+  std::vector<v8::Local<v8::String>> isolated_bundle_params = {
+      node::FIXED_ONE_BYTE_STRING(isolate, "nodeProcess"),
+      node::FIXED_ONE_BYTE_STRING(isolate, "isolatedWorld")};
 
-  auto binding = v8::Object::New(isolate);
-  api::Initialize(binding, v8::Null(isolate), context, nullptr);
+  std::vector<v8::Local<v8::Value>> isolated_bundle_args = {
+      GetEnvironment(render_frame)->process_object(),
+      GetContext(render_frame->GetWebFrame(), isolate)->Global()};
 
-  // Pass in CLI flags needed to setup window
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  mate::Dictionary dict(isolate, binding);
-  if (command_line->HasSwitch(switches::kGuestInstanceID))
-    dict.Set(options::kGuestInstanceID,
-             command_line->GetSwitchValueASCII(switches::kGuestInstanceID));
-  if (command_line->HasSwitch(switches::kOpenerID))
-    dict.Set(options::kOpenerID,
-             command_line->GetSwitchValueASCII(switches::kOpenerID));
-  dict.Set("hiddenPage", command_line->HasSwitch(switches::kHiddenPage));
-  dict.Set(options::kNativeWindowOpen,
-           command_line->HasSwitch(switches::kNativeWindowOpen));
-
-  v8::Local<v8::Value> args[] = {binding};
-  ignore_result(func->Call(context, v8::Null(isolate), 1, args));
+  node::per_process::native_module_loader.CompileAndCall(
+      context, "electron/js2c/isolated_bundle", &isolated_bundle_params,
+      &isolated_bundle_args, nullptr);
 }
 
 node::Environment* AtomRendererClient::GetEnvironment(

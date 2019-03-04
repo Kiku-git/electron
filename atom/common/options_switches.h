@@ -58,10 +58,10 @@ extern const char kZoomFactor[];
 extern const char kPreloadScript[];
 extern const char kPreloadURL[];
 extern const char kNodeIntegration[];
+extern const char kEnableRemoteModule[];
 extern const char kContextIsolation[];
 extern const char kGuestInstanceID[];
 extern const char kExperimentalFeatures[];
-extern const char kExperimentalCanvasFeatures[];
 extern const char kOpenerID[];
 extern const char kScrollBounce[];
 extern const char kEnableBlinkFeatures[];
@@ -75,6 +75,7 @@ extern const char kSandbox[];
 extern const char kWebSecurity[];
 extern const char kAllowRunningInsecureContent[];
 extern const char kOffscreen[];
+extern const char kNodeIntegrationInSubFrames[];
 
 }  // namespace options
 
@@ -83,23 +84,24 @@ extern const char kOffscreen[];
 namespace switches {
 
 extern const char kEnableSandbox[];
-extern const char kEnableMixedSandbox[];
 extern const char kEnablePlugins[];
 extern const char kPpapiFlashPath[];
 extern const char kPpapiFlashVersion[];
 extern const char kDisableHttpCache[];
 extern const char kStandardSchemes[];
-extern const char kRegisterServiceWorkerSchemes[];
+extern const char kServiceWorkerSchemes[];
 extern const char kSecureSchemes[];
+extern const char kBypassCSPSchemes[];
+extern const char kFetchSchemes[];
+extern const char kCORSSchemes[];
 extern const char kAppUserModelId[];
 extern const char kAppPath[];
-extern const char kContextId[];
 
 extern const char kBackgroundColor[];
 extern const char kPreloadScript[];
-extern const char kPreloadURL[];
 extern const char kPreloadScripts[];
 extern const char kNodeIntegration[];
+extern const char kDisableRemoteModule[];
 extern const char kContextIsolation[];
 extern const char kGuestInstanceID[];
 extern const char kOpenerID[];
@@ -108,9 +110,15 @@ extern const char kHiddenPage[];
 extern const char kNativeWindowOpen[];
 extern const char kNodeIntegrationInWorker[];
 extern const char kWebviewTag[];
+extern const char kNodeIntegrationInSubFrames[];
 
 extern const char kWidevineCdmPath[];
 extern const char kWidevineCdmVersion[];
+
+extern const char kDiskCacheSize[];
+extern const char kIgnoreConnectionsLimit[];
+extern const char kAuthServerWhitelist[];
+extern const char kAuthNegotiateDelegateWhitelist[];
 
 }  // namespace switches
 

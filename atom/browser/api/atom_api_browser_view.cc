@@ -37,6 +37,14 @@ struct Converter<atom::AutoResizeFlags> {
     if (params.Get("height", &height) && height) {
       flags |= atom::kAutoResizeHeight;
     }
+    bool horizontal = false;
+    if (params.Get("horizontal", &horizontal) && horizontal) {
+      flags |= atom::kAutoResizeHorizontal;
+    }
+    bool vertical = false;
+    if (params.Get("vertical", &vertical) && vertical) {
+      flags |= atom::kAutoResizeVertical;
+    }
 
     *auto_resize_flags = static_cast<atom::AutoResizeFlags>(flags);
     return true;
@@ -66,6 +74,7 @@ void BrowserView::Init(v8::Isolate* isolate,
 
   web_contents_.Reset(isolate, web_contents.ToV8());
   api_web_contents_ = web_contents.get();
+  Observe(web_contents->web_contents());
 
   view_.reset(
       NativeBrowserView::Create(api_web_contents_->managed_web_contents()));
@@ -74,7 +83,16 @@ void BrowserView::Init(v8::Isolate* isolate,
 }
 
 BrowserView::~BrowserView() {
-  api_web_contents_->DestroyWebContents(true /* async */);
+  if (api_web_contents_) {  // destroy() is called
+    // Destroy WebContents asynchronously unless app is shutting down,
+    // because destroy() might be called inside WebContents's event handler.
+    api_web_contents_->DestroyWebContents(!Browser::Get()->is_shutting_down());
+  }
+}
+
+void BrowserView::WebContentsDestroyed() {
+  api_web_contents_ = nullptr;
+  web_contents_.Reset();
 }
 
 // static
@@ -149,8 +167,9 @@ void Initialize(v8::Local<v8::Object> exports,
   v8::Isolate* isolate = context->GetIsolate();
   BrowserView::SetConstructor(isolate, base::Bind(&BrowserView::New));
 
-  mate::Dictionary browser_view(
-      isolate, BrowserView::GetConstructor(isolate)->GetFunction());
+  mate::Dictionary browser_view(isolate, BrowserView::GetConstructor(isolate)
+                                             ->GetFunction(context)
+                                             .ToLocalChecked());
   browser_view.SetMethod("fromId",
                          &mate::TrackableObject<BrowserView>::FromWeakMapID);
   browser_view.SetMethod("getAllViews",

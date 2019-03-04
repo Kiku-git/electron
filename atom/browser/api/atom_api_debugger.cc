@@ -4,18 +4,17 @@
 
 #include "atom/browser/api/atom_api_debugger.h"
 
+#include <memory>
 #include <string>
+#include <utility>
 
-#include "atom/browser/atom_browser_main_parts.h"
 #include "atom/common/native_mate_converters/callback.h"
 #include "atom/common/native_mate_converters/value_converter.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/memory/ptr_util.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/web_contents.h"
 #include "native_mate/dictionary.h"
-#include "native_mate/object_template_builder.h"
 
 #include "atom/common/node_includes.h"
 
@@ -26,20 +25,22 @@ namespace atom {
 namespace api {
 
 Debugger::Debugger(v8::Isolate* isolate, content::WebContents* web_contents)
-    : web_contents_(web_contents) {
+    : content::WebContentsObserver(web_contents), web_contents_(web_contents) {
   Init(isolate);
 }
 
 Debugger::~Debugger() {}
 
 void Debugger::AgentHostClosed(DevToolsAgentHost* agent_host) {
-  std::string detach_reason = "target closed";
-  Emit("detach", detach_reason);
+  DCHECK(agent_host == agent_host_);
+  agent_host_ = nullptr;
+  ClearPendingRequests();
+  Emit("detach", "target closed");
 }
 
 void Debugger::DispatchProtocolMessage(DevToolsAgentHost* agent_host,
                                        const std::string& message) {
-  DCHECK(agent_host == agent_host_.get());
+  DCHECK(agent_host == agent_host_);
 
   v8::Locker locker(isolate());
   v8::HandleScope handle_scope(isolate());
@@ -60,20 +61,35 @@ void Debugger::DispatchProtocolMessage(DevToolsAgentHost* agent_host,
       params.Swap(params_value);
     Emit("message", method, params);
   } else {
-    auto send_command_callback = pending_requests_[id];
-    pending_requests_.erase(id);
-    if (send_command_callback.is_null())
+    auto it = pending_requests_.find(id);
+    if (it == pending_requests_.end())
       return;
-    base::DictionaryValue* error_body = nullptr;
-    base::DictionaryValue error;
-    if (dict->GetDictionary("error", &error_body))
-      error.Swap(error_body);
 
-    base::DictionaryValue* result_body = nullptr;
-    base::DictionaryValue result;
-    if (dict->GetDictionary("result", &result_body))
-      result.Swap(result_body);
-    send_command_callback.Run(error, result);
+    atom::util::Promise promise = std::move(it->second);
+    pending_requests_.erase(it);
+
+    base::DictionaryValue* error = nullptr;
+    if (dict->GetDictionary("error", &error)) {
+      std::string message;
+      error->GetString("message", &message);
+      promise.RejectWithErrorMessage(message);
+    } else {
+      base::DictionaryValue* result_body = nullptr;
+      base::DictionaryValue result;
+      if (dict->GetDictionary("result", &result_body)) {
+        result.Swap(result_body);
+      }
+      promise.Resolve(result);
+    }
+  }
+}
+
+void Debugger::RenderFrameHostChanged(content::RenderFrameHost* old_rfh,
+                                      content::RenderFrameHost* new_rfh) {
+  if (agent_host_) {
+    agent_host_->DisconnectWebContents();
+    auto* web_contents = content::WebContents::FromRenderFrameHost(new_rfh);
+    agent_host_->ConnectWebContents(web_contents);
   }
 }
 
@@ -81,18 +97,20 @@ void Debugger::Attach(mate::Arguments* args) {
   std::string protocol_version;
   args->GetNext(&protocol_version);
 
+  if (agent_host_) {
+    args->ThrowError("Debugger is already attached to the target");
+    return;
+  }
+
   if (!protocol_version.empty() &&
       !DevToolsAgentHost::IsSupportedProtocolVersion(protocol_version)) {
     args->ThrowError("Requested protocol version is not supported");
     return;
   }
+
   agent_host_ = DevToolsAgentHost::GetOrCreateFor(web_contents_);
-  if (!agent_host_.get()) {
+  if (!agent_host_) {
     args->ThrowError("No target available");
-    return;
-  }
-  if (agent_host_->IsAttached()) {
-    args->ThrowError("Another debugger is already attached to this target");
     return;
   }
 
@@ -100,42 +118,53 @@ void Debugger::Attach(mate::Arguments* args) {
 }
 
 bool Debugger::IsAttached() {
-  return agent_host_.get() ? agent_host_->IsAttached() : false;
+  return agent_host_ && agent_host_->IsAttached();
 }
 
 void Debugger::Detach() {
-  if (!agent_host_.get())
+  if (!agent_host_)
     return;
   agent_host_->DetachClient(this);
   AgentHostClosed(agent_host_.get());
-  agent_host_ = nullptr;
 }
 
-void Debugger::SendCommand(mate::Arguments* args) {
-  if (!agent_host_.get())
-    return;
+v8::Local<v8::Promise> Debugger::SendCommand(mate::Arguments* args) {
+  atom::util::Promise promise(isolate());
+  v8::Local<v8::Promise> handle = promise.GetHandle();
+
+  if (!agent_host_) {
+    promise.RejectWithErrorMessage("No target available");
+    return handle;
+  }
 
   std::string method;
   if (!args->GetNext(&method)) {
-    args->ThrowError();
-    return;
+    promise.RejectWithErrorMessage("Invalid method");
+    return handle;
   }
+
   base::DictionaryValue command_params;
   args->GetNext(&command_params);
-  SendCommandCallback callback;
-  args->GetNext(&callback);
 
   base::DictionaryValue request;
   int request_id = ++previous_request_id_;
-  pending_requests_[request_id] = callback;
+  pending_requests_.emplace(request_id, std::move(promise));
   request.SetInteger("id", request_id);
   request.SetString("method", method);
   if (!command_params.empty())
-    request.Set("params", base::WrapUnique(command_params.DeepCopy()));
+    request.Set("params",
+                base::Value::ToUniquePtrValue(command_params.Clone()));
 
   std::string json_args;
   base::JSONWriter::Write(request, &json_args);
   agent_host_->DispatchProtocolMessage(this, json_args);
+
+  return handle;
+}
+
+void Debugger::ClearPendingRequests() {
+  for (auto& it : pending_requests_)
+    it.second.RejectWithErrorMessage("target closed while handling command");
 }
 
 // static
@@ -169,7 +198,9 @@ void Initialize(v8::Local<v8::Object> exports,
                 void* priv) {
   v8::Isolate* isolate = context->GetIsolate();
   mate::Dictionary(isolate, exports)
-      .Set("Debugger", Debugger::GetConstructor(isolate)->GetFunction());
+      .Set("Debugger", Debugger::GetConstructor(isolate)
+                           ->GetFunction(context)
+                           .ToLocalChecked());
 }
 
 }  // namespace

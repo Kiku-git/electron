@@ -8,6 +8,7 @@
 #include <map>
 
 #include "base/observer_list.h"
+#include "base/observer_list_types.h"
 #include "ui/base/models/simple_menu_model.h"
 
 namespace atom {
@@ -23,6 +24,11 @@ class AtomMenuModel : public ui::SimpleMenuModel {
         bool use_default_accelerator,
         ui::Accelerator* accelerator) const = 0;
 
+    virtual bool ShouldRegisterAcceleratorForCommandId(
+        int command_id) const = 0;
+
+    virtual bool ShouldCommandIdWorkWhenHidden(int command_id) const = 0;
+
    private:
     // ui::SimpleMenuModel::Delegate:
     bool GetAcceleratorForCommandId(
@@ -30,9 +36,9 @@ class AtomMenuModel : public ui::SimpleMenuModel {
         ui::Accelerator* accelerator) const override;
   };
 
-  class Observer {
+  class Observer : public base::CheckedObserver {
    public:
-    virtual ~Observer() {}
+    ~Observer() override {}
 
     // Notifies the menu will open.
     virtual void OnMenuWillShow() {}
@@ -52,6 +58,8 @@ class AtomMenuModel : public ui::SimpleMenuModel {
   bool GetAcceleratorAtWithParams(int index,
                                   bool use_default_accelerator,
                                   ui::Accelerator* accelerator) const;
+  bool ShouldRegisterAcceleratorAt(int index) const;
+  bool WorksWhenHiddenAt(int index) const;
 
   // ui::SimpleMenuModel:
   void MenuWillClose() override;

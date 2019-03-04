@@ -4,8 +4,8 @@
 
 #include "atom/browser/native_browser_view_mac.h"
 
-#include "brightray/browser/inspectable_web_contents.h"
-#include "brightray/browser/inspectable_web_contents_view.h"
+#include "atom/browser/ui/inspectable_web_contents.h"
+#include "atom/browser/ui/inspectable_web_contents_view.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -55,7 +55,7 @@ const NSAutoresizingMaskOptions kDefaultAutoResizingMask =
     return;
   }
 
-  if (self.window.styleMask & NSFullScreenWindowMask) {
+  if (self.window.styleMask & NSWindowStyleMaskFullScreen) {
     return;
   }
 
@@ -67,7 +67,7 @@ const NSAutoresizingMaskOptions kDefaultAutoResizingMask =
     return;
   }
 
-  if (self.window.styleMask & NSFullScreenWindowMask) {
+  if (self.window.styleMask & NSWindowStyleMaskFullScreen) {
     return;
   }
 
@@ -158,9 +158,10 @@ const NSAutoresizingMaskOptions kDefaultAutoResizingMask =
 namespace atom {
 
 NativeBrowserViewMac::NativeBrowserViewMac(
-    brightray::InspectableWebContents* inspectable_web_contents)
+    InspectableWebContents* inspectable_web_contents)
     : NativeBrowserView(inspectable_web_contents) {
-  auto* view = GetInspectableWebContentsView()->GetNativeView();
+  auto* view =
+      GetInspectableWebContentsView()->GetNativeView().GetNativeNSView();
   view.autoresizingMask = kDefaultAutoResizingMask;
 }
 
@@ -174,13 +175,23 @@ void NativeBrowserViewMac::SetAutoResizeFlags(uint8_t flags) {
   if (flags & kAutoResizeHeight) {
     autoresizing_mask |= NSViewHeightSizable;
   }
+  if (flags & kAutoResizeHorizontal) {
+    autoresizing_mask |=
+        NSViewMaxXMargin | NSViewMinXMargin | NSViewWidthSizable;
+  }
+  if (flags & kAutoResizeVertical) {
+    autoresizing_mask |=
+        NSViewMaxYMargin | NSViewMinYMargin | NSViewHeightSizable;
+  }
 
-  auto* view = GetInspectableWebContentsView()->GetNativeView();
+  auto* view =
+      GetInspectableWebContentsView()->GetNativeView().GetNativeNSView();
   view.autoresizingMask = autoresizing_mask;
 }
 
 void NativeBrowserViewMac::SetBounds(const gfx::Rect& bounds) {
-  auto* view = GetInspectableWebContentsView()->GetNativeView();
+  auto* view =
+      GetInspectableWebContentsView()->GetNativeView().GetNativeNSView();
   auto* superview = view.superview;
   const auto superview_height = superview ? superview.frame.size.height : 0;
   view.frame =
@@ -189,15 +200,17 @@ void NativeBrowserViewMac::SetBounds(const gfx::Rect& bounds) {
 }
 
 void NativeBrowserViewMac::SetBackgroundColor(SkColor color) {
-  auto* view = GetInspectableWebContentsView()->GetNativeView();
+  auto* view =
+      GetInspectableWebContentsView()->GetNativeView().GetNativeNSView();
   view.wantsLayer = YES;
   view.layer.backgroundColor = skia::CGColorCreateFromSkColor(color);
 }
 
 void NativeBrowserViewMac::UpdateDraggableRegions(
     const std::vector<gfx::Rect>& drag_exclude_rects) {
-  NSView* web_view = GetWebContents()->GetNativeView();
-  NSView* inspectable_view = GetInspectableWebContentsView()->GetNativeView();
+  NSView* web_view = GetWebContents()->GetNativeView().GetNativeNSView();
+  NSView* inspectable_view =
+      GetInspectableWebContentsView()->GetNativeView().GetNativeNSView();
   NSView* window_content_view = inspectable_view.superview;
   const auto window_content_view_height = NSHeight(window_content_view.bounds);
 
@@ -233,7 +246,7 @@ void NativeBrowserViewMac::UpdateDraggableRegions(
 
 // static
 NativeBrowserView* NativeBrowserView::Create(
-    brightray::InspectableWebContents* inspectable_web_contents) {
+    InspectableWebContents* inspectable_web_contents) {
   return new NativeBrowserViewMac(inspectable_web_contents);
 }
 

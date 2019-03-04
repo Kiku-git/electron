@@ -8,13 +8,13 @@ An example of implementing a protocol that has the same effect as the
 `file://` protocol:
 
 ```javascript
-const {app, protocol} = require('electron')
+const { app, protocol } = require('electron')
 const path = require('path')
 
 app.on('ready', () => {
   protocol.registerFileProtocol('atom', (request, callback) => {
     const url = request.url.substr(7)
-    callback({path: path.normalize(`${__dirname}/${url}`)})
+    callback({ path: path.normalize(`${__dirname}/${url}`) })
   }, (error) => {
     if (error) console.error('Failed to register protocol')
   })
@@ -28,12 +28,26 @@ of the `app` module gets emitted.
 
 The `protocol` module has the following methods:
 
-### `protocol.registerStandardSchemes(schemes[, options])`
+### `protocol.registerSchemesAsPrivileged(customSchemes)`
 
-* `schemes` String[] - Custom schemes to be registered as standard schemes.
-* `options` Object (optional)
-  * `secure` Boolean (optional) - `true` to register the scheme as secure.
-    Default `false`.
+* `customSchemes` [CustomScheme[]](structures/custom-scheme.md)
+
+
+**Note:** This method can only be used before the `ready` event of the `app`
+module gets emitted and can be called only once.
+
+Registers the `scheme` as standard, secure, bypasses content security policy for resources,
+allows registering ServiceWorker and supports fetch API.
+
+Specify a privilege with the value of `true` to enable the capability.
+An example of registering a privileged scheme, with bypassing Content Security Policy:
+
+```javascript
+const { protocol } = require('electron')
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'foo', privileges: { bypassCSP: true } }
+])
+```
 
 A standard scheme adheres to what RFC 3986 calls [generic URI
 syntax](https://tools.ietf.org/html/rfc3986#section-3). For example `http` and
@@ -59,23 +73,26 @@ error for the scheme.
 
 By default web storage apis (localStorage, sessionStorage, webSQL, indexedDB, cookies)
 are disabled for non standard schemes. So in general if you want to register a
-custom protocol to replace the `http` protocol, you have to register it as a standard scheme:
+custom protocol to replace the `http` protocol, you have to register it as a standard scheme.
 
+`protocol.registerSchemesAsPriviliged` can be used to replicate the functionality of the previous `protocol.registerStandardSchemes`, `webFrame.registerURLSchemeAs*` and `protocol.registerServiceWorkerSchemes` functions that existed prior to Electron 5.0.0, for example:
+
+**before (<= v4.x)**
 ```javascript
-const {app, protocol} = require('electron')
-
-protocol.registerStandardSchemes(['atom'])
-app.on('ready', () => {
-  protocol.registerHttpProtocol('atom', '...')
-})
+// Main
+protocol.registerStandardSchemes(['scheme1', 'scheme2'], { secure: true })
+// Renderer
+webFrame.registerURLSchemeAsPrivileged('scheme1', { secure: true })
+webFrame.registerURLSchemeAsPrivileged('scheme2', { secure: true })
 ```
 
-**Note:** This method can only be used before the `ready` event of the `app`
-module gets emitted.
-
-### `protocol.registerServiceWorkerSchemes(schemes)`
-
-* `schemes` String[] - Custom schemes to be registered to handle service workers.
+**after (>= v5.x)**
+```javascript
+protocol.registerSchemesAsPriviliged([
+  { scheme: 'scheme1', privileges: { standard: true, secure: true } },
+  { scheme: 'scheme2', privileges: { standard: true, secure: true } }
+])
+```
 
 ### `protocol.registerFileProtocol(scheme, handler[, completion])`
 
@@ -99,7 +116,9 @@ going to be created with `scheme`. `completion` will be called with
 
 To handle the `request`, the `callback` should be called with either the file's
 path or an object that has a `path` property, e.g. `callback(filePath)` or
-`callback({path: filePath})`.
+`callback({ path: filePath })`. The object may also have a `headers` property
+which gives a list of strings for the response headers, e.g.
+`callback({ path: filePath, headers: ["Content-Security-Policy: default-src 'none'"]})`.
 
 When `callback` is called with nothing, a number, or an object that has an
 `error` property, the `request` will fail with the `error` number you
@@ -134,10 +153,10 @@ should be called with either a `Buffer` object or an object that has the `data`,
 Example:
 
 ```javascript
-const {protocol} = require('electron')
+const { protocol } = require('electron')
 
 protocol.registerBufferProtocol('atom', (request, callback) => {
-  callback({mimeType: 'text/html', data: Buffer.from('<h5>Response</h5>')})
+  callback({ mimeType: 'text/html', data: Buffer.from('<h5>Response</h5>') })
 }, (error) => {
   if (error) console.error('Failed to register protocol')
 })
@@ -169,6 +188,7 @@ should be called with either a `String` or an object that has the `data`,
 * `handler` Function
   * `request` Object
     * `url` String
+    * `headers` Object
     * `referrer` String
     * `method` String
     * `uploadData` [UploadData[]](structures/upload-data.md)
@@ -218,8 +238,8 @@ has the `data`, `statusCode`, and `headers` properties.
 Example:
 
 ```javascript
-const {protocol} = require('electron')
-const {PassThrough} = require('stream')
+const { protocol } = require('electron')
+const { PassThrough } = require('stream')
 
 function createStream (text) {
   const rv = new PassThrough() // PassThrough is also a Readable stream
@@ -245,7 +265,7 @@ It is possible to pass any object that implements the readable stream API (emits
 `data`/`end`/`error` events). For example, here's how a file could be returned:
 
 ```javascript
-const {protocol} = require('electron')
+const { protocol } = require('electron')
 const fs = require('fs')
 
 protocol.registerStreamProtocol('atom', (request, callback) => {
@@ -267,9 +287,18 @@ Unregisters the custom protocol of `scheme`.
 
 * `scheme` String
 * `callback` Function
-  * `error` Error
+  * `handled` Boolean
 
 The `callback` will be called with a boolean that indicates whether there is
+already a handler for `scheme`.
+
+**[Deprecated Soon](promisification.md)**
+
+### `protocol.isProtocolHandled(scheme)`
+
+* `scheme` String
+
+Returns `Promise<Boolean>` - fulfilled with a boolean that indicates whether there is
 already a handler for `scheme`.
 
 ### `protocol.interceptFileProtocol(scheme, handler[, completion])`
@@ -329,6 +358,7 @@ which sends a `Buffer` as a response.
 * `handler` Function
   * `request` Object
     * `url` String
+    * `headers` Object
     * `referrer` String
     * `method` String
     * `uploadData` [UploadData[]](structures/upload-data.md)

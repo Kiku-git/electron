@@ -36,9 +36,9 @@ Below is an example of a simple slot machine touch bar game with a button
 and some labels.
 
 ```javascript
-const {app, BrowserWindow, TouchBar} = require('electron')
+const { app, BrowserWindow, TouchBar } = require('electron')
 
-const {TouchBarLabel, TouchBarButton, TouchBarSpacer} = TouchBar
+const { TouchBarLabel, TouchBarButton, TouchBarSpacer } = TouchBar
 
 let spinning = false
 
@@ -112,17 +112,19 @@ const finishSpin = () => {
   spinning = false
 }
 
-const touchBar = new TouchBar([
-  spin,
-  new TouchBarSpacer({size: 'large'}),
-  reel1,
-  new TouchBarSpacer({size: 'small'}),
-  reel2,
-  new TouchBarSpacer({size: 'small'}),
-  reel3,
-  new TouchBarSpacer({size: 'large'}),
-  result
-])
+const touchBar = new TouchBar({
+  items: [
+    spin,
+    new TouchBarSpacer({ size: 'large' }),
+    reel1,
+    new TouchBarSpacer({ size: 'small' }),
+    reel2,
+    new TouchBarSpacer({ size: 'small' }),
+    reel3,
+    new TouchBarSpacer({ size: 'large' }),
+    result
+  ]
+})
 
 let window
 
